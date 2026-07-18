@@ -31,6 +31,10 @@ Reading to **Edit** → Read correct. Reading to **analyze/explore/summarize** �
 ### Grep — may flood context
 Use `ctx_execute(language: "shell", code: "grep ...")` in sandbox.
 
+### Edit — prefer symbol-level when the target is nameable
+Editing a function/method/class/interface/enum/variable/parameter/import/decorator by line number breaks when code shifts. When the target can be named as a symbol (TS/JS/Python), resolve it first, then patch it — don't guess a line range:
+`ctx_semantic_resolve(path, query)` → confirm the exact span → `ctx_semantic_patch(path, symbol, newCode)`, which scores multiple patch sizes, runs review gates, and applies transactionally with automatic rollback. Falls back to plain Edit for languages it doesn't parse or edits with no clean symbol target (e.g. formatting-only changes, non-TS/JS/Python files).
+
 ## Tool selection
 
 0. **MEMORY**: `ctx_search(sort: "timeline")` — after resume, check prior context before asking user.

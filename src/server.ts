@@ -44,6 +44,7 @@ import { getHookScriptPaths } from "./util/hook-config.js";
 import { resolveClaudeConfigDir } from "./util/claude-config.js";
 import { loadDatabase } from "./db-base.js";
 import { AnalyticsEngine, formatReport, getConversationStats, getLifetimeStats, getMultiAdapterLifetimeStats, getRealBytesStats, OPUS_INPUT_PRICE_PER_TOKEN } from "./session/analytics.js";
+import { registerSemanticTools } from "./semantic/mcp-tools.js";
 const __pkg_dir = dirname(fileURLToPath(import.meta.url));
 const VERSION: string = (() => {
   for (const rel of ["../package.json", "./package.json"]) {
@@ -253,6 +254,17 @@ function getStorePath(): string {
   // existing legacy raw-casing FTS5 db (with -wal/-shm sidecars) is
   // migrated in place on first call. On Linux it's a no-op.
   return resolveContentStorePath({ projectDir: getProjectDir(), contentDir: dir });
+}
+
+/**
+ * Per-project PatchMemory JSON path for the semantic patch engine — same
+ * layout convention as getStorePath()/getSessionDbPath() (sessions/ sibling
+ * dir, sha256-hashed project dir as filename), one file per project.
+ */
+function getSemanticMemoryPath(): string {
+  const dir = join(dirname(getSessionDir()), "semantic-memory");
+  mkdirSync(dir, { recursive: true });
+  return join(dir, `${hashProjectDirCanonical(getProjectDir())}.json`);
 }
 
 function getStore(): ContentStore {
@@ -695,6 +707,42 @@ function checkFilePathDenyPolicy(
         content: [{
           type: "text" as const,
           text: `File access blocked by security policy: path matches Read deny pattern ${result.matchedPattern}`,
+        }],
+        isError: true,
+      });
+    }
+  } catch {
+    // Fail-open
+  }
+  return null;
+}
+
+/**
+ * Check a file path against BOTH Read and Edit deny patterns — for tools
+ * (like ctx_semantic_patch) that read a file to resolve a symbol AND write
+ * back to it, so an `Edit(glob)` deny rule in settings.json is honored even
+ * though no prior context-mode tool wrote to arbitrary paths on disk.
+ */
+function checkWriteFilePathDenyPolicy(
+  filePath: string,
+  toolName: string,
+): ToolResult | null {
+  const readDenied = checkFilePathDenyPolicy(filePath, toolName);
+  if (readDenied) return readDenied;
+  try {
+    const projectDir = getProjectDir();
+    const denyGlobs = readToolDenyPatterns("Edit", projectDir);
+    const result = evaluateFilePath(
+      filePath,
+      denyGlobs,
+      process.platform === "win32",
+      projectDir,
+    );
+    if (result.denied) {
+      return trackResponse(toolName, {
+        content: [{
+          type: "text" as const,
+          text: `File write blocked by security policy: path matches Edit deny pattern ${result.matchedPattern}`,
         }],
         isError: true,
       });
@@ -3591,6 +3639,21 @@ server.registerTool(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────
+// Tools: symbol-level semantic patch engine
+// ─────────────────────────────────────────────────────────
+
+registerSemanticTools({
+  server,
+  trackResponse,
+  resolveProjectPath,
+  checkFilePathDenyPolicy,
+  checkWriteFilePathDenyPolicy,
+  getProjectDir,
+  getPythonBin: () => runtimes.python,
+  getMemoryPath: getSemanticMemoryPath,
+});
 
 // ─────────────────────────────────────────────────────────
 // Server startup

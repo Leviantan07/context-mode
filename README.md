@@ -969,6 +969,9 @@ npm install -g context-mode
 | `ctx_index` | Chunk markdown into FTS5 with BM25 ranking. | 60 KB → 40 B |
 | `ctx_search` | Query indexed content with multiple queries in one call. | On-demand retrieval |
 | `ctx_fetch_and_index` | Fetch URL, chunk and index. 24h TTL cache — repeat calls skip network. `force: true` to bypass. Pass `requests: [{url, source}, ...]` + `concurrency: 1-8` for parallel multi-URL. | 60 KB → 40 B |
+| `ctx_semantic_resolve` | Resolve a function/method/class/interface/enum/variable/parameter/import/decorator/comment/string/literal to its exact AST span (TS compiler API for TS/JS, Python's `ast` module for `.py`). Target symbols, not line numbers. | Whole file → one span |
+| `ctx_semantic_patch` | Symbol-level patch: generates a candidate ladder (character → token → expression/statement → AST), scores each on minimal-edit size, syntax validity, semantic safety, formatting preservation, diff size, and token efficiency, runs deterministic review gates, then applies the smallest passing candidate transactionally with automatic rollback. | Whole-file rewrite → minimal diff |
+| `ctx_semantic_patch_stats` | PatchMemory: success/rollback rate and per-strategy, per-language stats from prior `ctx_semantic_patch` calls in this project. | — |
 | `ctx_stats` | Show context savings, call counts, and session statistics. | — |
 | `ctx_doctor` | Diagnose installation: runtimes, hooks, FTS5, versions. | — |
 | `ctx_upgrade` | Upgrade to latest version from GitHub, rebuild, reconfigure hooks. | — |
@@ -983,6 +986,20 @@ Eleven language runtimes are available: JavaScript, TypeScript, Python, Shell, R
 Authenticated CLIs work through credential passthrough — `gh`, `aws`, `gcloud`, `kubectl`, `docker` inherit environment variables and config paths without exposing them to the conversation.
 
 When output exceeds 5 KB and an `intent` is provided, Context Mode switches to intent-driven filtering: it indexes the full output into the knowledge base, searches for sections matching your intent, and returns only the relevant matches with a vocabulary of searchable terms for follow-up queries.
+
+## How the Semantic Patch Engine Works
+
+Editing at a line number is fragile — code shifts, and a stale line number silently patches the wrong thing. `ctx_semantic_resolve` and `ctx_semantic_patch` resolve edits to a **symbol** instead:
+
+```
+Instruction → Symbol resolution (TS compiler API / Python ast) → Candidate patch ladder → Score → Review → Transactional apply
+```
+
+1. **Resolve** — `ctx_semantic_resolve(path, query)` parses the file with the TypeScript compiler API (`.ts`/`.tsx`/`.js`/`.jsx`) or Python's own `ast` module, shelled out via stdlib only (`.py`), and returns the exact byte span of the function, method, class, interface, enum, variable, parameter, import, decorator, comment, string, or literal you asked for.
+2. **Optimize** — `ctx_semantic_patch(path, symbol, newCode)` generates several ways to express the same resulting file — a character-minimal span, a token-boundary span, the smallest enclosing expression/statement, and the whole AST node — and scores each on minimal-edit size, syntax validity, semantic safety (public signatures preserved), formatting preservation, diff size, and token efficiency. The smallest one wins.
+3. **Review** — four deterministic gates (static analyzer, formatter checker, security agent, semantic-safety) each approve, ask for a smaller patch, or flag a risk before anything is written.
+4. **Apply transactionally** — snapshot, write, verify (syntax check + an optional `testCommand`), keep on success, restore the exact original bytes on any failure. No patch is ever left on disk half-applied.
+5. **Remember** — every patch is recorded in a per-project **PatchMemory** (`ctx_semantic_patch_stats`), so which strategies actually work for a given language and project accumulates over time instead of resetting every session.
 
 ## How the Knowledge Base Works
 

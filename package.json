@@ -84,7 +84,7 @@
   ],
   "scripts": {
     "build": "tsc && node -e \"if(process.platform!=='win32'){require('fs').chmodSync('build/cli.js',0o755)}\" && npm run bundle",
-    "bundle": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=esm --outfile=server.bundle.mjs --external:better-sqlite3 --external:turndown --external:turndown-plugin-gfm --external:@mixmark-io/domino --minify && esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=cli.bundle.mjs --external:better-sqlite3 --minify && esbuild src/session/extract.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-extract.bundle.mjs --minify && esbuild src/session/snapshot.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-snapshot.bundle.mjs --minify && esbuild src/session/db.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-db.bundle.mjs --external:better-sqlite3 --minify",
+    "bundle": "esbuild src/server.ts --bundle --platform=node --target=node18 --format=esm --outfile=server.bundle.mjs --external:better-sqlite3 --external:turndown --external:turndown-plugin-gfm --external:@mixmark-io/domino --external:typescript --minify && esbuild src/cli.ts --bundle --platform=node --target=node18 --format=esm --outfile=cli.bundle.mjs --external:better-sqlite3 --minify && esbuild src/session/extract.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-extract.bundle.mjs --minify && esbuild src/session/snapshot.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-snapshot.bundle.mjs --minify && esbuild src/session/db.ts --bundle --platform=node --target=node18 --format=esm --outfile=hooks/session-db.bundle.mjs --external:better-sqlite3 --minify",
     "version-sync": "node scripts/version-sync.mjs",
     "version": "node scripts/version-sync.mjs && git add package.json .claude-plugin/plugin.json .claude-plugin/marketplace.json .openclaw-plugin/openclaw.plugin.json .openclaw-plugin/package.json openclaw.plugin.json .pi/extensions/context-mode/package.json",
     "prepublishOnly": "npm run build",
@@ -109,6 +109,7 @@
     "picocolors": "^1.1.1",
     "turndown": "^7.2.0",
     "turndown-plugin-gfm": "^1.0.2",
+    "typescript": "^5.7.0",
     "zod": "^3.25.0"
   },
   "optionalDependencies": {
@@ -120,7 +121,6 @@
     "@types/turndown": "^5.0.5",
     "esbuild": "^0.27.3",
     "tsx": "^4.21.0",
-    "typescript": "^5.7.0",
     "vitest": "^4.0.18"
   },
   "packageManager": "pnpm@10.23.0+sha512.21c4e5698002ade97e4efe8b8b4a89a8de3c85a37919f957e7a0f30f38fbc5bbdd05980ffe29179b2fb6e6e691242e098d945d1601772cad0fef5fb6411e2a4b"
