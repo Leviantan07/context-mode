@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^11.0.0",
     "@forge/db": "0.1.0",
     "@forge/shared": "0.1.0",
     "@forge/worker": "0.1.0",

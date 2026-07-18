@@ -1,0 +1,17 @@
+{
+  "name": "Forge (context-mode)",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [8787],
+  "portsAttributes": {
+    "8787": {
+      "label": "Forge API",
+      "visibility": "public",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "bash forge/.devcontainer/setup.sh",
+  "postStartCommand": "bash forge/.devcontainer/start.sh"
+}

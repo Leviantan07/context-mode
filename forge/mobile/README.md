@@ -7,6 +7,15 @@ indicator safe areas) and works as the phone interface: open it in mobile
 Safari/Chrome and "Add to Home Screen" for an app-like icon and standalone
 window (`packages/dashboard/public/manifest.json`).
 
+**Getting it in front of your phone without a LAN machine**: see
+[`../docs/INSTALL.md`](../docs/INSTALL.md) → "Mobile access: GitHub Pages +
+Codespaces" for a GitHub-only setup — the dashboard on GitHub Pages
+(always-on), the API + Postgres in a Codespace (sleeps after ~30 min idle,
+resumed with one tap from github.com/codespaces before use). It's not
+truly always-on end-to-end — the tradeoff is a manual wake of the API side,
+not a background service running 24/7 — but it needs no separate hosting
+account, VPS, or LAN machine, just the GitHub account you already have.
+
 This was a deliberate V1 trade-off, not an oversight — see
 [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) → Mobile Interface /
 Notifications Mobile for why: a real native app needs app-store

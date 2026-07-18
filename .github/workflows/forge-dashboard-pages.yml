@@ -1,0 +1,47 @@
+name: Deploy Forge Dashboard to Pages
+
+# Publishes the static Forge dashboard (forge/packages/dashboard/public — no
+# build step, plain HTML/CSS/JS) to GitHub Pages. This is the "always-on"
+# half of the GitHub-only mobile setup: the dashboard is reachable from a
+# phone browser at any time, and points (via a one-time prompt stored in
+# localStorage) at the Forge API running in a Codespace — see
+# forge/docs/INSTALL.md -> "GitHub Pages + Codespaces".
+#
+# One-time manual step this workflow depends on: repo Settings -> Pages ->
+# Build and deployment -> Source: "GitHub Actions". Without that, the deploy
+# job below has nothing to publish to.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, claude/adaptive-rag-setup-2d8ct9]
+    paths:
+      - 'forge/packages/dashboard/public/**'
+      - '.github/workflows/forge-dashboard-pages.yml'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: forge/packages/dashboard/public
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
