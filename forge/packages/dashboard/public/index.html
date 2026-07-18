@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Forge</title>
+<link rel="manifest" href="./manifest.json" />
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #0b0d12; color: #e6e8ec; padding-bottom: env(safe-area-inset-bottom);
+  }
+  header {
+    position: sticky; top: 0; z-index: 10; background: #11141b; padding: 14px 16px;
+    border-bottom: 1px solid #1f2430; display: flex; align-items: center; justify-content: space-between;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  header button { background: none; border: none; color: #8b93a7; font-size: 14px; }
+  main { padding: 16px; max-width: 640px; margin: 0 auto; }
+  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+  .stat { background: #151923; border-radius: 10px; padding: 10px; text-align: center; }
+  .stat .value { font-size: 18px; font-weight: 700; }
+  .stat .label { font-size: 11px; color: #8b93a7; margin-top: 2px; }
+  textarea {
+    width: 100%; min-height: 72px; background: #151923; border: 1px solid #262c3a; border-radius: 10px;
+    color: #e6e8ec; padding: 12px; font-size: 15px; resize: vertical;
+  }
+  button.primary {
+    width: 100%; margin-top: 10px; background: #4f7cff; color: white; border: none; border-radius: 10px;
+    padding: 13px; font-size: 15px; font-weight: 600;
+  }
+  button.primary:disabled { opacity: 0.5; }
+  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #8b93a7; margin: 24px 0 10px; }
+  .task-card {
+    background: #151923; border-radius: 10px; padding: 12px; margin-bottom: 8px; cursor: pointer;
+    border: 1px solid #1f2430;
+  }
+  .task-card .prompt { font-size: 14px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .task-card .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #8b93a7; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.CREATED, .badge.ANALYZING { background: #2a3550; color: #8fb1ff; }
+  .badge.EXECUTING, .badge.TESTING { background: #3d3418; color: #ffd166; }
+  .badge.COMPLETED { background: #1a3d2a; color: #6ee7a0; }
+  .badge.FAILED { background: #3d1a1a; color: #ff8080; }
+  .timeline-item { padding: 8px 0; border-bottom: 1px solid #1a1f2a; font-size: 13px; }
+  .timeline-item .type { color: #8b93a7; font-size: 11px; text-transform: uppercase; margin-bottom: 2px; }
+  .timeline-item pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0 0; font-size: 12px; color: #c3c9d6; }
+  #back { display: none; }
+  #detail { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <button id="back" onclick="showList()">&larr; Back</button>
+  <h1 id="title">Forge</h1>
+  <button onclick="configure()">⚙</button>
+</header>
+<main>
+  <section id="list">
+    <div class="stats" id="stats"></div>
+
+    <div class="section-title">New task</div>
+    <textarea id="prompt" placeholder="e.g. Add authentication to my application"></textarea>
+    <button class="primary" id="submit" onclick="submitTask()">Send to Forge</button>
+
+    <div class="section-title">Recent tasks</div>
+    <div id="tasks"></div>
+  </section>
+
+  <section id="detail">
+    <div class="stats" id="detailMeta"></div>
+    <div class="section-title">Timeline</div>
+    <div id="timeline"></div>
+  </section>
+</main>
+
+<script>
+  const API = localStorage.getItem("forge_api_base") || prompt("Forge API base URL", "http://localhost:8787") || "http://localhost:8787";
+  localStorage.setItem("forge_api_base", API);
+
+  function configure() {
+    const next = prompt("Forge API base URL", API);
+    if (next) { localStorage.setItem("forge_api_base", next); location.reload(); }
+  }
+
+  function showList() {
+    document.getElementById("list").style.display = "block";
+    document.getElementById("detail").style.display = "none";
+    document.getElementById("back").style.display = "none";
+    document.getElementById("title").textContent = "Forge";
+    if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
+    loadList();
+  }
+
+  async function loadList() {
+    const [statsRes, tasksRes] = await Promise.all([
+      fetch(`${API}/stats`).then((r) => r.json()),
+      fetch(`${API}/tasks`).then((r) => r.json()),
+    ]);
+    renderStats(statsRes.stats);
+    renderTasks(tasksRes.tasks);
+  }
+
+  function renderStats(s) {
+    const items = [
+      ["Tasks", s.totalTasks],
+      ["Completed", s.completedTasks],
+      ["Failed", s.failedTasks],
+      ["Avg time", s.averageDurationMs != null ? `${Math.round(s.averageDurationMs / 1000)}s` : "—"],
+      ["Tokens", s.totalTokens.toLocaleString()],
+      ["Cost", `$${s.totalCostUsd.toFixed(2)}`],
+    ];
+    document.getElementById("stats").innerHTML = items
+      .map(([label, value]) => `<div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>`)
+      .join("");
+  }
+
+  function renderTasks(tasks) {
+    document.getElementById("tasks").innerHTML = tasks
+      .map(
+        (t) => `
+        <div class="task-card" onclick="openTask('${t.id}')">
+          <div class="prompt">${escapeHtml(t.prompt)}</div>
+          <div class="meta">
+            <span class="badge ${t.status}">${t.status}</span>
+            <span>${t.durationMs != null ? Math.round(t.durationMs / 1000) + "s" : new Date(t.createdAt).toLocaleTimeString()}</span>
+          </div>
+        </div>`
+      )
+      .join("") || `<p style="color:#8b93a7">No tasks yet — send one above.</p>`;
+  }
+
+  async function submitTask() {
+    const promptEl = document.getElementById("prompt");
+    const text = promptEl.value.trim();
+    if (!text) return;
+    const btn = document.getElementById("submit");
+    btn.disabled = true;
+    try {
+      const res = await fetch(`${API}/tasks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt: text }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      const { task } = await res.json();
+      promptEl.value = "";
+      await loadList();
+      openTask(task.id);
+    } catch (err) {
+      alert("Failed to create task: " + err.message);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  let currentEventSource = null;
+
+  async function openTask(id) {
+    document.getElementById("list").style.display = "none";
+    document.getElementById("detail").style.display = "block";
+    document.getElementById("back").style.display = "inline";
+    document.getElementById("title").textContent = "Task";
+    document.getElementById("timeline").innerHTML = "";
+
+    const res = await fetch(`${API}/tasks/${id}`);
+    const { task, toolUsage, modelUsage } = await res.json();
+    renderDetailMeta(task, toolUsage, modelUsage);
+
+    if (currentEventSource) currentEventSource.close();
+    currentEventSource = new EventSource(`${API}/tasks/${id}/events`);
+    currentEventSource.onmessage = (msg) => {
+      const event = JSON.parse(msg.data);
+      appendTimelineEvent(event);
+      if (event.type === "status_change" || event.type === "result") {
+        fetch(`${API}/tasks/${id}`).then((r) => r.json()).then(({ task, toolUsage, modelUsage }) =>
+          renderDetailMeta(task, toolUsage, modelUsage)
+        );
+      }
+    };
+  }
+
+  function renderDetailMeta(task, toolUsage, modelUsage) {
+    const totalTokens = (modelUsage || []).reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0);
+    const items = [
+      ["Status", task.status],
+      ["Duration", task.durationMs != null ? `${Math.round(task.durationMs / 1000)}s` : "running"],
+      ["Tools used", (toolUsage || []).length],
+      ["Tokens", totalTokens.toLocaleString()],
+    ];
+    document.getElementById("detailMeta").innerHTML = items
+      .map(([label, value]) => `<div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>`)
+      .join("");
+  }
+
+  function appendTimelineEvent(event) {
+    const el = document.createElement("div");
+    el.className = "timeline-item";
+    let body = "";
+    if (event.type === "assistant_text") body = `<pre>${escapeHtml(event.text)}</pre>`;
+    else if (event.type === "tool_call") body = `<pre>${escapeHtml(event.tool.toolName)} (${event.tool.success ? "ok" : "failed"}, ${event.tool.durationMs ?? "?"}ms)</pre>`;
+    else if (event.type === "model_usage") body = `<pre>${event.usage.model}: ${event.usage.inputTokens}in / ${event.usage.outputTokens}out</pre>`;
+    else if (event.type === "status_change") body = `<pre>${event.status}</pre>`;
+    else if (event.type === "error") body = `<pre style="color:#ff8080">${escapeHtml(event.message)}</pre>`;
+    else if (event.type === "result") body = `<pre>${escapeHtml(event.result || "(no output)")}</pre>`;
+    el.innerHTML = `<div class="type">${event.type} · ${new Date(event.timestamp).toLocaleTimeString()}</div>${body}`;
+    document.getElementById("timeline").prepend(el);
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  }
+
+  showList();
+</script>
+</body>
+</html>

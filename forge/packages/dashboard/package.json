@@ -1,0 +1,9 @@
+{
+  "name": "@forge/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Mobile-first static dashboard — doubles as the V1 'mobile interface' (see docs/ARCHITECTURE.md). No build step: plain HTML/CSS/JS.",
+  "scripts": {
+    "dev": "npx serve public -l 5173"
+  }
+}

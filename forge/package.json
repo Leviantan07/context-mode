@@ -1,0 +1,20 @@
+{
+  "name": "forge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Forge V1 — task orchestration for Claude Code, with full execution observability (LangSmith + Postgres).",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev:api": "npm run dev --workspace packages/api",
+    "dev:worker": "npm run dev --workspace packages/worker",
+    "db:generate": "npm run generate --workspace packages/db",
+    "db:migrate": "npm run migrate --workspace packages/db",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
