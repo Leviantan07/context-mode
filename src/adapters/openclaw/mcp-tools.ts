@@ -1,7 +1,7 @@
 /**
  * OpenClaw MCP tool registry.
  *
- * Catalogs the 12 ctx_* tools that OpenClaw plugin must register via
+ * Catalogs the ctx_* tools that OpenClaw plugin must register via
  * api.registerTool(...) so the routing block (which nudges agents toward
  * ctx_execute, ctx_search, etc.) actually has tools to call. Without this,
  * Phase 7 audit (v1.0.107-adapter-openclaw.json) flagged severity=CRITICAL —
@@ -19,7 +19,7 @@
  * ctx-upgrade slash commands. This keeps the plugin's blast radius minimal:
  * we don't re-export the entire MCP server stack inside OpenClaw's process.
  *
- * The 12 tools mirror src/server.ts registerTool calls.
+ * The tools mirror src/server.ts registerTool calls.
  */
 
 /** Minimal JSON-schema-like parameter spec accepted by OpenClaw registerTool. */
@@ -77,7 +77,7 @@ function cliRedirect(toolName: string) {
 }
 
 /**
- * The 12 ctx_* tool definitions registered into OpenClaw via api.registerTool.
+ * The ctx_* tool definitions registered into OpenClaw via api.registerTool.
  * Names + descriptions mirror src/server.ts registerTool blocks 1:1 so prompts
  * referencing them (routing block, AGENTS.md) resolve to real callable tools.
  */
