@@ -1,7 +1,7 @@
 /**
  * OpenClaw MCP tool registry.
  *
- * Catalogs the 11 ctx_* tools that OpenClaw plugin must register via
+ * Catalogs the 12 ctx_* tools that OpenClaw plugin must register via
  * api.registerTool(...) so the routing block (which nudges agents toward
  * ctx_execute, ctx_search, etc.) actually has tools to call. Without this,
  * Phase 7 audit (v1.0.107-adapter-openclaw.json) flagged severity=CRITICAL —
@@ -19,8 +19,7 @@
  * ctx-upgrade slash commands. This keeps the plugin's blast radius minimal:
  * we don't re-export the entire MCP server stack inside OpenClaw's process.
  *
- * The 11 tools mirror src/server.ts registerTool calls (lines 897, 1226, 1371,
- * 1497, 2034, 2256, 2440, 2501, 2592, 2712, 2808).
+ * The 12 tools mirror src/server.ts registerTool calls.
  */
 
 /** Minimal JSON-schema-like parameter spec accepted by OpenClaw registerTool. */
@@ -78,7 +77,7 @@ function cliRedirect(toolName: string) {
 }
 
 /**
- * The 11 ctx_* tool definitions registered into OpenClaw via api.registerTool.
+ * The 12 ctx_* tool definitions registered into OpenClaw via api.registerTool.
  * Names + descriptions mirror src/server.ts registerTool blocks 1:1 so prompts
  * referencing them (routing block, AGENTS.md) resolve to real callable tools.
  */
@@ -142,6 +141,21 @@ export const OPENCLAW_TOOL_DEFS: readonly OpenClawToolDef[] = [
       additionalProperties: true,
     },
     execute: cliRedirect("ctx_search"),
+  },
+  {
+    name: "ctx_adaptive_rag",
+    description:
+      "Adaptive retrieval: routes a query to graphify (structural) or nexus (semantic) when installed, else falls back to FTS5 keyword search.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The question or lookup" },
+        mode: { type: "string", description: "auto | graph | semantic | keyword" },
+      },
+      required: ["query"],
+      additionalProperties: true,
+    },
+    execute: cliRedirect("ctx_adaptive_rag"),
   },
   {
     name: "ctx_fetch_and_index",

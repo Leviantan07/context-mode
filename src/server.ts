@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createRequire } from "node:module";
 import { existsSync, unlinkSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync, mkdirSync, cpSync, statSync, symlinkSync, lstatSync } from "node:fs";
-import { execSync, spawnSync, type ChildProcess, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
+import { execSync, execFileSync, spawnSync, type ChildProcess, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
 import { join, dirname, resolve, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, tmpdir, cpus } from "node:os";
@@ -27,6 +27,7 @@ import {
   hasBunRuntime,
 } from "./runtime.js";
 import { classifyNonZeroExit } from "./exit-classify.js";
+import { detectExternalTools, getExternalToolsSummary, type ExternalToolInfo } from "./external-tools.js";
 import { startLifecycleGuard } from "./lifecycle.js";
 import { hashProjectDirCanonical, hashProjectDirLegacy, resolveContentStorePath, resolveSessionDbPath, SessionDB } from "./session/db.js";
 import { purgeSession } from "./session/purge.js";
@@ -1844,6 +1845,182 @@ server.registerTool(
 );
 
 // ─────────────────────────────────────────────────────────
+// Tool: adaptive RAG — routes to graphify/nexus when present, else FTS5
+// ─────────────────────────────────────────────────────────
+
+// Structural phrasing → prefer a code knowledge graph (graphify) over
+// keyword/semantic search when one is available.
+const STRUCTURAL_QUERY_RE = /\b(calls?|called by|imports?|imported by|depends? on|dependenc(?:y|ies)|inherits?|subclass|extends|path from|who uses|usages? of|references?)\b/i;
+
+// No shell involved — args passed as an array so the query string can never
+// be interpreted as shell syntax, regardless of its contents.
+function runExternalTool(
+  command: string,
+  args: string[],
+  timeoutMs = 15000,
+): { ok: true; output: string } | { ok: false; error: string } {
+  try {
+    const out = execFileSync(command, args, {
+      encoding: "utf-8",
+      shell: process.platform === "win32",
+      timeout: timeoutMs,
+      maxBuffer: 10 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (!out || !out.trim()) return { ok: false, error: "empty output" };
+    return { ok: true, output: out };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: message.slice(0, 300) };
+  }
+}
+
+// Best-effort compression of raw backend output via rtk, if present. Never
+// blocks the response — any failure just returns the uncompressed output.
+function maybeCompressWithRtk(output: string, rtk: ExternalToolInfo): string {
+  if (!rtk.available) return output;
+  try {
+    const compressed = execFileSync(rtk.command, ["compress"], {
+      input: output,
+      encoding: "utf-8",
+      shell: process.platform === "win32",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return compressed && compressed.trim().length > 0 ? compressed : output;
+  } catch {
+    return output;
+  }
+}
+
+server.registerTool(
+  "ctx_adaptive_rag",
+  {
+    title: "Adaptive RAG Search",
+    description:
+      "Adaptive retrieval: routes each query to the best available backend, then falls back to the " +
+      "built-in FTS5 keyword search (same engine as ctx_search) when a backend is unavailable or fails. " +
+      "Output is indexed and previewed, not dumped raw — use ctx_search(source: \"adaptive-rag:<mode>\") for more.\n\n" +
+      "Backends (auto-detected on PATH, all optional):\n" +
+      "  • graph — structural queries (calls/imports/inherits/dependency paths) via Graphify " +
+      "(https://github.com/Graphify-Labs/graphify)\n" +
+      "  • semantic — conceptual queries via Nexus semantic search (https://github.com/nexi-lab/nexus)\n" +
+      "  • keyword — always available, FTS5 BM25 over content indexed via ctx_batch_execute/ctx_index/ctx_fetch_and_index\n\n" +
+      "mode 'auto' (default): picks 'graph' for structural phrasing when Graphify is present, else 'semantic' " +
+      "when Nexus is present, else 'keyword'. Pass mode explicitly to force a backend.\n\n" +
+      "Backend binaries default to `graphify` / `nexus` on PATH — override with CONTEXT_MODE_GRAPHIFY_CMD / " +
+      "CONTEXT_MODE_NEXUS_CMD env vars if your install differs. When RTK (https://github.com/rtk-ai/rtk) is on " +
+      "PATH, raw backend output is piped through it for compression before indexing (best-effort, never required). " +
+      "Run ctx_doctor to see which backends are currently detected.",
+    inputSchema: z.object({
+      query: z.string().describe("The question or lookup, e.g. 'who calls parseConfig' (graph) or 'how does auth work' (semantic/keyword)."),
+      mode: z
+        .enum(["auto", "graph", "semantic", "keyword"])
+        .optional()
+        .default("auto")
+        .describe("Force a backend, or let 'auto' pick one based on query shape and tool availability."),
+      limit: z.coerce.number().optional().default(5).describe("Max results for the keyword fallback (1-20)."),
+    }),
+  },
+  async ({ query, mode, limit }) => {
+    if (!query || !query.trim()) {
+      return trackResponse("ctx_adaptive_rag", {
+        content: [{ type: "text" as const, text: "Error: provide a non-empty query." }],
+        isError: true,
+      });
+    }
+
+    const tools = detectExternalTools();
+    const effectiveLimit = Math.max(1, Math.min(limit ?? 5, 20));
+    const notes: string[] = [];
+    let resolved: "graph" | "semantic" | "keyword" =
+      mode && mode !== "auto" ? mode : "keyword";
+
+    if (!mode || mode === "auto") {
+      if (STRUCTURAL_QUERY_RE.test(query) && tools.graphify.available) {
+        resolved = "graph";
+      } else if (tools.nexus.available) {
+        resolved = "semantic";
+      } else {
+        resolved = "keyword";
+      }
+    }
+
+    const indexBackendOutput = (backend: "graph" | "semantic", rawOutput: string): ToolResult => {
+      const output = maybeCompressWithRtk(rawOutput, tools.rtk);
+      const label = `adaptive-rag:${backend}`;
+      const idx = getStore().index({ content: output, source: label });
+      trackIndexed(Buffer.byteLength(output), label);
+      const preview = output.length > 3000
+        ? output.slice(0, 3000) + `\n\n… truncated (${idx.totalChunks} chunks indexed) — use ctx_search(source: "${label}") for more.`
+        : output;
+      const header = notes.length > 0 ? notes.join("\n") + "\n\n" : "";
+      return trackResponse("ctx_adaptive_rag", {
+        content: [{ type: "text" as const, text: `${header}[backend: ${backend}]\n\n${preview}` }],
+      });
+    };
+
+    if (resolved === "graph") {
+      if (!tools.graphify.available) {
+        notes.push(`Graphify not found on PATH (install: ${tools.graphify.installUrl}) — falling back to keyword search.`);
+        resolved = "keyword";
+      } else {
+        const result = runExternalTool(tools.graphify.command, ["query", query, "--json"]);
+        if (result.ok) return indexBackendOutput("graph", result.output);
+        notes.push(`Graphify query failed (${result.error}) — falling back to keyword search.`);
+        resolved = "keyword";
+      }
+    }
+
+    if (resolved === "semantic") {
+      if (!tools.nexus.available) {
+        notes.push(`Nexus not found on PATH (install: ${tools.nexus.installUrl}) — falling back to keyword search.`);
+        resolved = "keyword";
+      } else {
+        const result = runExternalTool(tools.nexus.command, ["search", query, "--json"]);
+        if (result.ok) return indexBackendOutput("semantic", result.output);
+        notes.push(`Nexus search failed (${result.error}) — falling back to keyword search.`);
+        resolved = "keyword";
+      }
+    }
+
+    // Keyword fallback — always available, reuses the same FTS5 engine as ctx_search.
+    try {
+      const store = getStore();
+      if (store.getStats().chunks === 0) {
+        const header = notes.length > 0 ? notes.join("\n") + "\n\n" : "";
+        return trackResponse("ctx_adaptive_rag", {
+          content: [{
+            type: "text" as const,
+            text: `${header}Knowledge base is empty — no content has been indexed yet. ` +
+              "Use ctx_batch_execute, ctx_index, or ctx_fetch_and_index to index content first, then retry.",
+          }],
+        });
+      }
+      const results = store.searchWithFallback(query, effectiveLimit);
+      const header = notes.length > 0 ? notes.join("\n") + "\n\n" : "";
+      if (results.length === 0) {
+        return trackResponse("ctx_adaptive_rag", {
+          content: [{ type: "text" as const, text: `${header}[backend: keyword]\n\nNo results found.` }],
+        });
+      }
+      const formatted = results
+        .map((r) => `### ${r.title}\n\n${extractSnippet(r.content, query, 1500, r.highlighted)}`)
+        .join("\n\n---\n\n");
+      return trackResponse("ctx_adaptive_rag", {
+        content: [{ type: "text" as const, text: `${header}[backend: keyword]\n\n${formatted}` }],
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return trackResponse("ctx_adaptive_rag", {
+        content: [{ type: "text" as const, text: `Adaptive RAG error: ${message}` }],
+        isError: true,
+      });
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────
 // Turndown path resolution (external dep, like better-sqlite3)
 // ─────────────────────────────────────────────────────────
 
@@ -2978,6 +3155,9 @@ server.registerTool(
     } else {
       lines.push("[WARN] Hooks: adapter detection unavailable");
     }
+
+    // Adaptive RAG backends (rtk / graphify / nexus) — all optional
+    lines.push(...getExternalToolsSummary(detectExternalTools()));
 
     // Version
     lines.push(`[OK] Version: v${VERSION}`);

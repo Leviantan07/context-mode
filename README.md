@@ -968,11 +968,22 @@ npm install -g context-mode
 | `ctx_execute_file` | Process files in sandbox. Raw content never leaves. | 45 KB → 155 B |
 | `ctx_index` | Chunk markdown into FTS5 with BM25 ranking. | 60 KB → 40 B |
 | `ctx_search` | Query indexed content with multiple queries in one call. | On-demand retrieval |
+| `ctx_adaptive_rag` | Routes a query to the best available backend — a code knowledge graph ([graphify](https://github.com/Graphify-Labs/graphify)) for structural questions, semantic search ([nexus](https://github.com/nexi-lab/nexus)) for conceptual ones — and falls back to the built-in FTS5 keyword search when neither is installed. | On-demand retrieval |
 | `ctx_fetch_and_index` | Fetch URL, chunk and index. 24h TTL cache — repeat calls skip network. `force: true` to bypass. Pass `requests: [{url, source}, ...]` + `concurrency: 1-8` for parallel multi-URL. | 60 KB → 40 B |
 | `ctx_stats` | Show context savings, call counts, and session statistics. | — |
 | `ctx_doctor` | Diagnose installation: runtimes, hooks, FTS5, versions. | — |
 | `ctx_upgrade` | Upgrade to latest version from GitHub, rebuild, reconfigure hooks. | — |
 | `ctx_purge` | Permanently deletes all indexed content from the knowledge base. | — |
+
+## Adaptive RAG
+
+`ctx_adaptive_rag(query, mode?)` picks the retrieval strategy per query instead of always doing keyword search:
+
+- **`graph`** — structural questions ("who calls X", "what imports Y", dependency paths) are routed to [graphify](https://github.com/Graphify-Labs/graphify), a tree-sitter-based code knowledge graph, when it's on `PATH`.
+- **`semantic`** — conceptual questions fall to [nexus](https://github.com/nexi-lab/nexus)'s BM25S + pgvector semantic search when it's installed.
+- **`keyword`** — the always-available fallback: the same FTS5/BM25 engine `ctx_search` uses.
+
+`mode: "auto"` (the default) detects structural phrasing and backend availability and picks for you; pass `mode: "graph" | "semantic" | "keyword"` to force one. Backend output is indexed (not dumped raw) and, when [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, piped through it for compression first — same "only the summary enters context" contract as every other tool here. None of the three backends are required; run `ctx_doctor` to see what's detected. Binary names default to `graphify` / `nexus` / `rtk` and are overridable via `CONTEXT_MODE_GRAPHIFY_CMD` / `CONTEXT_MODE_NEXUS_CMD` / `CONTEXT_MODE_RTK_CMD` if your install uses different names.
 
 ## How the Sandbox Works
 
