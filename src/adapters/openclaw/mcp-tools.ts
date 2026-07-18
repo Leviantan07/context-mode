@@ -145,7 +145,7 @@ export const OPENCLAW_TOOL_DEFS: readonly OpenClawToolDef[] = [
   {
     name: "ctx_adaptive_rag",
     description:
-      "Adaptive retrieval: routes a query to graphify (structural) or nexus (semantic) when installed, else falls back to FTS5 keyword search.",
+      "Adaptive retrieval: routes a query to GitNexus (structural trace or semantic hybrid search) when installed, else falls back to FTS5 keyword search.",
     parameters: {
       type: "object",
       properties: {

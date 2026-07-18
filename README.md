@@ -968,7 +968,7 @@ npm install -g context-mode
 | `ctx_execute_file` | Process files in sandbox. Raw content never leaves. | 45 KB → 155 B |
 | `ctx_index` | Chunk markdown into FTS5 with BM25 ranking. | 60 KB → 40 B |
 | `ctx_search` | Query indexed content with multiple queries in one call. | On-demand retrieval |
-| `ctx_adaptive_rag` | Routes a query to the best available backend — a code knowledge graph ([graphify](https://github.com/Graphify-Labs/graphify)) for structural questions, semantic search ([nexus](https://github.com/nexi-lab/nexus)) for conceptual ones — and falls back to the built-in FTS5 keyword search when neither is installed. | On-demand retrieval |
+| `ctx_adaptive_rag` | Routes a query to [GitNexus](https://github.com/abhigyanpatwari/GitNexus) — call-graph tracing for structural questions, hybrid BM25+semantic search for conceptual ones — and falls back to the built-in FTS5 keyword search when it isn't installed. | On-demand retrieval |
 | `ctx_pxpipe_status` | Checks whether [pxpipe](https://github.com/teamchong/pxpipe)'s local image-compression proxy is installed and listening. | — |
 | `ctx_pxpipe_start` | Launches the pxpipe proxy in the background (no-op if already running). | — |
 | `ctx_pxpipe_stop` | Stops a pxpipe proxy this session started via `ctx_pxpipe_start`. | — |
@@ -980,13 +980,13 @@ npm install -g context-mode
 
 ## Adaptive RAG
 
-`ctx_adaptive_rag(query, mode?)` picks the retrieval strategy per query instead of always doing keyword search:
+`ctx_adaptive_rag(query, mode?)` picks the retrieval strategy per query instead of always doing keyword search. Both non-keyword modes are powered by the same tool, [GitNexus](https://github.com/abhigyanpatwari/GitNexus) — a code knowledge-graph indexer with a confirmed, documented CLI that also does hybrid BM25 + semantic-vector search with reciprocal rank fusion (it replaces an earlier graphify + nexus split; GitNexus covers what those two did between them):
 
-- **`graph`** — structural questions ("who calls X", "what imports Y", dependency paths) are routed to [graphify](https://github.com/Graphify-Labs/graphify), a tree-sitter-based code knowledge graph, when it's on `PATH`.
-- **`semantic`** — conceptual questions fall to [nexus](https://github.com/nexi-lab/nexus)'s BM25S + pgvector semantic search when it's installed.
+- **`graph`** — structural questions ("who calls X", "what imports Y", dependency paths) run `gitnexus trace` when it's on `PATH`.
+- **`semantic`** — conceptual questions run `gitnexus query` (hybrid BM25 + semantic search) when it's on `PATH`.
 - **`keyword`** — the always-available fallback: the same FTS5/BM25 engine `ctx_search` uses.
 
-`mode: "auto"` (the default) detects structural phrasing and backend availability and picks for you; pass `mode: "graph" | "semantic" | "keyword"` to force one. Backend output is indexed (not dumped raw) and, when [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, piped through it for compression first — same "only the summary enters context" contract as every other tool here. None of the three backends are required; run `ctx_doctor` to see what's detected. Binary names default to `graphify` / `nexus` / `rtk` and are overridable via `CONTEXT_MODE_GRAPHIFY_CMD` / `CONTEXT_MODE_NEXUS_CMD` / `CONTEXT_MODE_RTK_CMD` if your install uses different names.
+`mode: "auto"` (the default) detects structural phrasing and picks 'graph' vs 'semantic' when GitNexus is present, else falls to 'keyword'; pass `mode` explicitly to force one. GitNexus needs `gitnexus analyze` run once against the repo before either mode has anything to query — if that hasn't happened, the backend call fails and this falls straight back to keyword search. Backend output is indexed (not dumped raw) and, when [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, piped through it for compression first — same "only the summary enters context" contract as every other tool here. Neither backend is required; run `ctx_doctor` to see what's detected. Binary names default to `gitnexus` / `rtk` and are overridable via `CONTEXT_MODE_GITNEXUS_CMD` / `CONTEXT_MODE_RTK_CMD` if your install uses different names.
 
 ### pxpipe (separate from Adaptive RAG)
 

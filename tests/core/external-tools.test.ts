@@ -1,7 +1,7 @@
 /**
- * Detection tests for optional external tools (rtk / graphify / nexus /
- * pxpipe). Uses real subprocess spawns against tiny fake executables rather
- * than mocking node:child_process, so the test exercises the actual
+ * Detection tests for optional external tools (rtk / gitnexus / pxpipe).
+ * Uses real subprocess spawns against tiny fake executables rather than
+ * mocking node:child_process, so the test exercises the actual
  * execFileSync probe path (PATH lookup, --version parsing, timeout).
  */
 import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
@@ -37,38 +37,34 @@ describe("detectExternalTools", () => {
   test("reports unavailable for a binary that doesn't exist on PATH", () => {
     const tools = detectExternalTools({
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_GITNEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
     expect(tools.rtk.available).toBe(false);
-    expect(tools.graphify.available).toBe(false);
-    expect(tools.nexus.available).toBe(false);
+    expect(tools.gitnexus.available).toBe(false);
     expect(tools.pxpipe.available).toBe(false);
     expect(tools.rtk.version).toBe("unknown");
   });
 
   test("honors env var override and parses --version output when the binary exists", () => {
-    const fakeGraphify = makeFakeBinary("graphify 1.2.3");
+    const fakeGitnexus = makeFakeBinary("gitnexus 1.2.3");
     const tools = detectExternalTools({
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_GRAPHIFY_CMD: fakeGraphify,
-      CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_GITNEXUS_CMD: fakeGitnexus,
       CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
-    expect(tools.graphify.available).toBe(true);
-    expect(tools.graphify.command).toBe(fakeGraphify);
-    expect(tools.graphify.version).toBe("graphify 1.2.3");
+    expect(tools.gitnexus.available).toBe(true);
+    expect(tools.gitnexus.command).toBe(fakeGitnexus);
+    expect(tools.gitnexus.version).toBe("gitnexus 1.2.3");
     expect(tools.rtk.available).toBe(false);
   });
 
   test("defaults to the bare command name when no env override is set", () => {
     const tools = detectExternalTools({} as NodeJS.ProcessEnv);
     expect(tools.rtk.command).toBe("rtk");
-    expect(tools.graphify.command).toBe("graphify");
-    expect(tools.nexus.command).toBe("nexus");
+    expect(tools.gitnexus.command).toBe("gitnexus");
     expect(tools.pxpipe.command).toBe("pxpipe");
   });
 
@@ -76,8 +72,8 @@ describe("detectExternalTools", () => {
     const tools = detectExternalTools({} as NodeJS.ProcessEnv);
     expect(tools.rtk.key).toBe("rtk");
     expect(tools.rtk.installUrl).toBe("https://github.com/rtk-ai/rtk");
-    expect(tools.graphify.installUrl).toBe("https://github.com/Graphify-Labs/graphify");
-    expect(tools.nexus.installUrl).toBe("https://github.com/nexi-lab/nexus");
+    expect(tools.gitnexus.key).toBe("gitnexus");
+    expect(tools.gitnexus.installUrl).toBe("https://github.com/abhigyanpatwari/GitNexus");
     expect(tools.pxpipe.key).toBe("pxpipe");
     expect(tools.pxpipe.installUrl).toBe("https://github.com/teamchong/pxpipe");
   });
@@ -88,8 +84,7 @@ describe("getExternalToolsSummary", () => {
     const fakeRtk = makeFakeBinary("rtk 0.9.0");
     const tools = detectExternalTools({
       CONTEXT_MODE_RTK_CMD: fakeRtk,
-      CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_GITNEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
@@ -101,8 +96,7 @@ describe("getExternalToolsSummary", () => {
   test("formats missing tools as [WARN] with an install link, naming the feature each powers", () => {
     const tools = detectExternalTools({
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
-      CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_GITNEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 

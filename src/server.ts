@@ -1846,11 +1846,12 @@ server.registerTool(
 );
 
 // ─────────────────────────────────────────────────────────
-// Tool: adaptive RAG — routes to graphify/nexus when present, else FTS5
+// Tool: adaptive RAG — routes to GitNexus when present, else FTS5
 // ─────────────────────────────────────────────────────────
 
-// Structural phrasing → prefer a code knowledge graph (graphify) over
-// keyword/semantic search when one is available.
+// Structural phrasing → prefer GitNexus's call-graph tracing ('graph' mode,
+// `gitnexus trace`) over its hybrid BM25+semantic search ('semantic' mode,
+// `gitnexus query`) when both are backed by the same installed tool.
 const STRUCTURAL_QUERY_RE = /\b(calls?|called by|imports?|imported by|depends? on|dependenc(?:y|ies)|inherits?|subclass|extends|path from|who uses|usages? of|references?)\b/i;
 
 // No shell involved — args passed as an array so the query string can never
@@ -1903,16 +1904,18 @@ server.registerTool(
       "built-in FTS5 keyword search (same engine as ctx_search) when a backend is unavailable or fails. " +
       "Output is indexed and previewed, not dumped raw — use ctx_search(source: \"adaptive-rag:<mode>\") for more.\n\n" +
       "Backends (auto-detected on PATH, all optional):\n" +
-      "  • graph — structural queries (calls/imports/inherits/dependency paths) via Graphify " +
-      "(https://github.com/Graphify-Labs/graphify)\n" +
-      "  • semantic — conceptual queries via Nexus semantic search (https://github.com/nexi-lab/nexus)\n" +
+      "  • graph — structural queries (calls/imports/inherits/dependency paths) via GitNexus's call-graph " +
+      "tracing, `gitnexus trace` (https://github.com/abhigyanpatwari/GitNexus)\n" +
+      "  • semantic — conceptual queries via GitNexus's hybrid BM25 + semantic-vector search, `gitnexus query`\n" +
       "  • keyword — always available, FTS5 BM25 over content indexed via ctx_batch_execute/ctx_index/ctx_fetch_and_index\n\n" +
-      "mode 'auto' (default): picks 'graph' for structural phrasing when Graphify is present, else 'semantic' " +
-      "when Nexus is present, else 'keyword'. Pass mode explicitly to force a backend.\n\n" +
-      "Backend binaries default to `graphify` / `nexus` on PATH — override with CONTEXT_MODE_GRAPHIFY_CMD / " +
-      "CONTEXT_MODE_NEXUS_CMD env vars if your install differs. When RTK (https://github.com/rtk-ai/rtk) is on " +
-      "PATH, raw backend output is piped through it for compression before indexing (best-effort, never required). " +
-      "Run ctx_doctor to see which backends are currently detected.",
+      "GitNexus needs `gitnexus analyze` run once against the repo before either mode has anything to query — " +
+      "if that hasn't happened, the backend call fails and this falls straight back to keyword search.\n\n" +
+      "mode 'auto' (default): picks 'graph' for structural phrasing when GitNexus is present, else 'semantic' " +
+      "when GitNexus is present, else 'keyword'. Pass mode explicitly to force a backend.\n\n" +
+      "Backend binary defaults to `gitnexus` on PATH — override with CONTEXT_MODE_GITNEXUS_CMD env var if your " +
+      "install differs. When RTK (https://github.com/rtk-ai/rtk) is on PATH, raw backend output is piped through " +
+      "it for compression before indexing (best-effort, never required). Run ctx_doctor to see which backends " +
+      "are currently detected.",
     inputSchema: z.object({
       query: z.string().describe("The question or lookup, e.g. 'who calls parseConfig' (graph) or 'how does auth work' (semantic/keyword)."),
       mode: z
@@ -1938,10 +1941,8 @@ server.registerTool(
       mode && mode !== "auto" ? mode : "keyword";
 
     if (!mode || mode === "auto") {
-      if (STRUCTURAL_QUERY_RE.test(query) && tools.graphify.available) {
-        resolved = "graph";
-      } else if (tools.nexus.available) {
-        resolved = "semantic";
+      if (tools.gitnexus.available) {
+        resolved = STRUCTURAL_QUERY_RE.test(query) ? "graph" : "semantic";
       } else {
         resolved = "keyword";
       }
@@ -1962,25 +1963,25 @@ server.registerTool(
     };
 
     if (resolved === "graph") {
-      if (!tools.graphify.available) {
-        notes.push(`Graphify not found on PATH (install: ${tools.graphify.installUrl}) — falling back to keyword search.`);
+      if (!tools.gitnexus.available) {
+        notes.push(`GitNexus not found on PATH (install: ${tools.gitnexus.installUrl}) — falling back to keyword search.`);
         resolved = "keyword";
       } else {
-        const result = runExternalTool(tools.graphify.command, ["query", query, "--json"]);
+        const result = runExternalTool(tools.gitnexus.command, ["trace", query, "--json"]);
         if (result.ok) return indexBackendOutput("graph", result.output);
-        notes.push(`Graphify query failed (${result.error}) — falling back to keyword search.`);
+        notes.push(`GitNexus trace failed (${result.error}) — falling back to keyword search.`);
         resolved = "keyword";
       }
     }
 
     if (resolved === "semantic") {
-      if (!tools.nexus.available) {
-        notes.push(`Nexus not found on PATH (install: ${tools.nexus.installUrl}) — falling back to keyword search.`);
+      if (!tools.gitnexus.available) {
+        notes.push(`GitNexus not found on PATH (install: ${tools.gitnexus.installUrl}) — falling back to keyword search.`);
         resolved = "keyword";
       } else {
-        const result = runExternalTool(tools.nexus.command, ["search", query, "--json"]);
+        const result = runExternalTool(tools.gitnexus.command, ["query", query, "--json"]);
         if (result.ok) return indexBackendOutput("semantic", result.output);
-        notes.push(`Nexus search failed (${result.error}) — falling back to keyword search.`);
+        notes.push(`GitNexus query failed (${result.error}) — falling back to keyword search.`);
         resolved = "keyword";
       }
     }
@@ -3319,7 +3320,7 @@ server.registerTool(
       lines.push("[WARN] Hooks: adapter detection unavailable");
     }
 
-    // Adaptive RAG backends (rtk / graphify / nexus) — all optional
+    // Adaptive RAG backends (rtk / gitnexus) + pxpipe — all optional
     lines.push(...getExternalToolsSummary(detectExternalTools()));
 
     // Version

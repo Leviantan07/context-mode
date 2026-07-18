@@ -1,8 +1,11 @@
 /**
  * Detection for optional external tools context-mode can hand off to:
  *   - rtk        — token compression, used to shrink ctx_adaptive_rag backend output
- *   - graphify   — code knowledge graph, ctx_adaptive_rag's "graph" backend
- *   - nexus      — multi-agent semantic search / memory, ctx_adaptive_rag's "semantic" backend
+ *   - gitnexus   — code knowledge-graph indexer + hybrid (BM25 + semantic + RRF) search;
+ *                  powers BOTH ctx_adaptive_rag's "graph" backend (gitnexus trace) and
+ *                  its "semantic" backend (gitnexus query). Replaces the earlier
+ *                  graphify/nexus split — GitNexus covers what those two did between
+ *                  them, with a documented, confirmed CLI.
  *   - pxpipe     — local proxy that renders bulky context as images to cut API token
  *                  cost; NOT a retrieval backend (returns nothing to search), so it is
  *                  managed by its own ctx_pxpipe_status/start/stop tools instead of
@@ -17,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 
 export interface ExternalToolInfo {
-  key: "rtk" | "graphify" | "nexus" | "pxpipe";
+  key: "rtk" | "gitnexus" | "pxpipe";
   name: string;
   command: string;
   available: boolean;
@@ -27,8 +30,7 @@ export interface ExternalToolInfo {
 
 export interface ExternalToolsMap {
   rtk: ExternalToolInfo;
-  graphify: ExternalToolInfo;
-  nexus: ExternalToolInfo;
+  gitnexus: ExternalToolInfo;
   pxpipe: ExternalToolInfo;
 }
 
@@ -49,18 +51,11 @@ const TOOL_SPECS: ToolSpec[] = [
     installUrl: "https://github.com/rtk-ai/rtk",
   },
   {
-    key: "graphify",
-    name: "Graphify",
-    envVar: "CONTEXT_MODE_GRAPHIFY_CMD",
-    defaultCommand: "graphify",
-    installUrl: "https://github.com/Graphify-Labs/graphify",
-  },
-  {
-    key: "nexus",
-    name: "Nexus",
-    envVar: "CONTEXT_MODE_NEXUS_CMD",
-    defaultCommand: "nexus",
-    installUrl: "https://github.com/nexi-lab/nexus",
+    key: "gitnexus",
+    name: "GitNexus",
+    envVar: "CONTEXT_MODE_GITNEXUS_CMD",
+    defaultCommand: "gitnexus",
+    installUrl: "https://github.com/abhigyanpatwari/GitNexus",
   },
   {
     key: "pxpipe",
@@ -104,7 +99,7 @@ function probe(command: string): { available: boolean; version: string } {
   }
 }
 
-/** Detects rtk/graphify/nexus on PATH (or at their env-var override path). */
+/** Detects rtk/gitnexus/pxpipe on PATH (or at their env-var override path). */
 export function detectExternalTools(env: NodeJS.ProcessEnv = process.env): ExternalToolsMap {
   const result = {} as ExternalToolsMap;
   for (const spec of TOOL_SPECS) {
@@ -125,8 +120,7 @@ export function detectExternalTools(env: NodeJS.ProcessEnv = process.env): Exter
 
 const POWERS: Record<ExternalToolInfo["key"], string> = {
   rtk: "ctx_adaptive_rag",
-  graphify: "ctx_adaptive_rag",
-  nexus: "ctx_adaptive_rag",
+  gitnexus: "ctx_adaptive_rag",
   pxpipe: "ctx_pxpipe_status / ctx_pxpipe_start",
 };
 
