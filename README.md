@@ -969,6 +969,9 @@ npm install -g context-mode
 | `ctx_index` | Chunk markdown into FTS5 with BM25 ranking. | 60 KB → 40 B |
 | `ctx_search` | Query indexed content with multiple queries in one call. | On-demand retrieval |
 | `ctx_adaptive_rag` | Routes a query to the best available backend — a code knowledge graph ([graphify](https://github.com/Graphify-Labs/graphify)) for structural questions, semantic search ([nexus](https://github.com/nexi-lab/nexus)) for conceptual ones — and falls back to the built-in FTS5 keyword search when neither is installed. | On-demand retrieval |
+| `ctx_pxpipe_status` | Checks whether [pxpipe](https://github.com/teamchong/pxpipe)'s local image-compression proxy is installed and listening. | — |
+| `ctx_pxpipe_start` | Launches the pxpipe proxy in the background (no-op if already running). | — |
+| `ctx_pxpipe_stop` | Stops a pxpipe proxy this session started via `ctx_pxpipe_start`. | — |
 | `ctx_fetch_and_index` | Fetch URL, chunk and index. 24h TTL cache — repeat calls skip network. `force: true` to bypass. Pass `requests: [{url, source}, ...]` + `concurrency: 1-8` for parallel multi-URL. | 60 KB → 40 B |
 | `ctx_stats` | Show context savings, call counts, and session statistics. | — |
 | `ctx_doctor` | Diagnose installation: runtimes, hooks, FTS5, versions. | — |
@@ -984,6 +987,16 @@ npm install -g context-mode
 - **`keyword`** — the always-available fallback: the same FTS5/BM25 engine `ctx_search` uses.
 
 `mode: "auto"` (the default) detects structural phrasing and backend availability and picks for you; pass `mode: "graph" | "semantic" | "keyword"` to force one. Backend output is indexed (not dumped raw) and, when [rtk](https://github.com/rtk-ai/rtk) is on `PATH`, piped through it for compression first — same "only the summary enters context" contract as every other tool here. None of the three backends are required; run `ctx_doctor` to see what's detected. Binary names default to `graphify` / `nexus` / `rtk` and are overridable via `CONTEXT_MODE_GRAPHIFY_CMD` / `CONTEXT_MODE_NEXUS_CMD` / `CONTEXT_MODE_RTK_CMD` if your install uses different names.
+
+### pxpipe (separate from Adaptive RAG)
+
+[pxpipe](https://github.com/teamchong/pxpipe) is a local proxy that renders bulky context (code, JSON, logs) as PNG images before it hits the model API, to cut token cost. It doesn't search or retrieve anything, so it isn't a `ctx_adaptive_rag` backend — it gets its own tools:
+
+- `ctx_pxpipe_status` — is the CLI installed, is the proxy listening.
+- `ctx_pxpipe_start` — launch it in the background (default `npx pxpipe-proxy`, override with `CONTEXT_MODE_PXPIPE_START_CMD` or a per-call `command`). No-op if already running.
+- `ctx_pxpipe_stop` — stop a proxy this session started. A pxpipe instance launched outside context-mode is left alone.
+
+Host/port default to `127.0.0.1:47821` (pxpipe's default dashboard) and are overridable via `CONTEXT_MODE_PXPIPE_HOST` / `CONTEXT_MODE_PXPIPE_PORT`; the CLI binary name defaults to `pxpipe` and is overridable via `CONTEXT_MODE_PXPIPE_CMD`.
 
 ## How the Sandbox Works
 

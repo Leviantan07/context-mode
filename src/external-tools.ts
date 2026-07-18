@@ -1,8 +1,14 @@
 /**
- * Detection for optional external RAG-adjacent tools that ctx_adaptive_rag can
- * route to when present: rtk (token compression), graphify (code knowledge
- * graph), nexus (multi-agent semantic search / memory). None are required —
- * context-mode's built-in FTS5 keyword search is always the fallback.
+ * Detection for optional external tools context-mode can hand off to:
+ *   - rtk        — token compression, used to shrink ctx_adaptive_rag backend output
+ *   - graphify   — code knowledge graph, ctx_adaptive_rag's "graph" backend
+ *   - nexus      — multi-agent semantic search / memory, ctx_adaptive_rag's "semantic" backend
+ *   - pxpipe     — local proxy that renders bulky context as images to cut API token
+ *                  cost; NOT a retrieval backend (returns nothing to search), so it is
+ *                  managed by its own ctx_pxpipe_status/start/stop tools instead of
+ *                  ctx_adaptive_rag's routing.
+ * None are required — context-mode's built-in FTS5 keyword search is always the
+ * ctx_adaptive_rag fallback.
  *
  * Each tool's binary name is overridable via env var so a differently-named
  * install (or a CLI surface that drifts from our best-guess defaults) doesn't
@@ -11,7 +17,7 @@
 import { execFileSync } from "node:child_process";
 
 export interface ExternalToolInfo {
-  key: "rtk" | "graphify" | "nexus";
+  key: "rtk" | "graphify" | "nexus" | "pxpipe";
   name: string;
   command: string;
   available: boolean;
@@ -23,6 +29,7 @@ export interface ExternalToolsMap {
   rtk: ExternalToolInfo;
   graphify: ExternalToolInfo;
   nexus: ExternalToolInfo;
+  pxpipe: ExternalToolInfo;
 }
 
 interface ToolSpec {
@@ -55,7 +62,31 @@ const TOOL_SPECS: ToolSpec[] = [
     defaultCommand: "nexus",
     installUrl: "https://github.com/nexi-lab/nexus",
   },
+  {
+    key: "pxpipe",
+    name: "pxpipe",
+    envVar: "CONTEXT_MODE_PXPIPE_CMD",
+    defaultCommand: "pxpipe",
+    installUrl: "https://github.com/teamchong/pxpipe",
+  },
 ];
+
+/** Default host/port for the local pxpipe proxy dashboard, overridable via env. */
+export function getPxpipeEndpoint(env: NodeJS.ProcessEnv = process.env): { host: string; port: number } {
+  const host = env.CONTEXT_MODE_PXPIPE_HOST?.trim() || "127.0.0.1";
+  const port = Number(env.CONTEXT_MODE_PXPIPE_PORT) || 47821;
+  return { host, port };
+}
+
+/**
+ * Command used to launch the pxpipe proxy (as documented: `npx pxpipe-proxy`).
+ * Returned as argv parts (no shell) so ctx_pxpipe_start can spawn it directly.
+ */
+export function getPxpipeStartCommand(env: NodeJS.ProcessEnv = process.env): string[] {
+  const override = env.CONTEXT_MODE_PXPIPE_START_CMD?.trim();
+  const raw = override && override.length > 0 ? override : "npx pxpipe-proxy";
+  return raw.split(/\s+/).filter(Boolean);
+}
 
 function probe(command: string): { available: boolean; version: string } {
   try {
@@ -92,11 +123,18 @@ export function detectExternalTools(env: NodeJS.ProcessEnv = process.env): Exter
   return result;
 }
 
+const POWERS: Record<ExternalToolInfo["key"], string> = {
+  rtk: "ctx_adaptive_rag",
+  graphify: "ctx_adaptive_rag",
+  nexus: "ctx_adaptive_rag",
+  pxpipe: "ctx_pxpipe_status / ctx_pxpipe_start",
+};
+
 /** Plain-text [OK]/[WARN] lines for ctx_doctor — mirrors existing doctor formatting. */
 export function getExternalToolsSummary(tools: ExternalToolsMap): string[] {
-  return Object.values(tools).map((info) =>
+  return (Object.values(tools) as ExternalToolInfo[]).map((info) =>
     info.available
       ? `[OK] ${info.name}: ${info.command} (${info.version})`
-      : `[WARN] ${info.name}: not found — optional, powers ctx_adaptive_rag. Install: ${info.installUrl}`,
+      : `[WARN] ${info.name}: not found — optional, powers ${POWERS[info.key]}. Install: ${info.installUrl}`,
   );
 }

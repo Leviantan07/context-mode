@@ -158,6 +158,39 @@ export const OPENCLAW_TOOL_DEFS: readonly OpenClawToolDef[] = [
     execute: cliRedirect("ctx_adaptive_rag"),
   },
   {
+    name: "ctx_pxpipe_status",
+    description:
+      "Check whether the pxpipe image-compression proxy (https://github.com/teamchong/pxpipe) is installed and listening. Not a search backend — separate from ctx_adaptive_rag.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    },
+    execute: cliRedirect("ctx_pxpipe_status"),
+  },
+  {
+    name: "ctx_pxpipe_start",
+    description: "Launch the local pxpipe proxy in the background. No-op if already listening.",
+    parameters: {
+      type: "object",
+      properties: {
+        command: { type: "string", description: "Optional launch command override" },
+      },
+      additionalProperties: true,
+    },
+    execute: cliRedirect("ctx_pxpipe_start"),
+  },
+  {
+    name: "ctx_pxpipe_stop",
+    description: "Stop a pxpipe proxy process previously started via ctx_pxpipe_start in this session.",
+    parameters: {
+      type: "object",
+      properties: {},
+      additionalProperties: true,
+    },
+    execute: cliRedirect("ctx_pxpipe_stop"),
+  },
+  {
     name: "ctx_fetch_and_index",
     description: "Fetch a URL, chunk it, and index — raw HTML never enters context.",
     parameters: {

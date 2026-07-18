@@ -3,7 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createRequire } from "node:module";
 import { existsSync, unlinkSync, readdirSync, readFileSync, writeFileSync, renameSync, rmSync, mkdirSync, cpSync, statSync, symlinkSync, lstatSync } from "node:fs";
-import { execSync, execFileSync, spawnSync, type ChildProcess, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
+import { execSync, execFileSync, spawn, spawnSync, type ChildProcess, type SpawnSyncOptions, type SpawnSyncReturns } from "node:child_process";
+import { createConnection } from "node:net";
 import { join, dirname, resolve, sep, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir, tmpdir, cpus } from "node:os";
@@ -27,7 +28,7 @@ import {
   hasBunRuntime,
 } from "./runtime.js";
 import { classifyNonZeroExit } from "./exit-classify.js";
-import { detectExternalTools, getExternalToolsSummary, type ExternalToolInfo } from "./external-tools.js";
+import { detectExternalTools, getExternalToolsSummary, getPxpipeEndpoint, getPxpipeStartCommand, type ExternalToolInfo } from "./external-tools.js";
 import { startLifecycleGuard } from "./lifecycle.js";
 import { hashProjectDirCanonical, hashProjectDirLegacy, resolveContentStorePath, resolveSessionDbPath, SessionDB } from "./session/db.js";
 import { purgeSession } from "./session/purge.js";
@@ -2017,6 +2018,168 @@ server.registerTool(
         isError: true,
       });
     }
+  },
+);
+
+// ─────────────────────────────────────────────────────────
+// pxpipe — local proxy that images-compress LLM API requests
+// (https://github.com/teamchong/pxpipe). NOT a retrieval backend — it
+// returns nothing to search, so it's managed by its own tools rather than
+// folded into ctx_adaptive_rag's graph/semantic/keyword routing.
+// ─────────────────────────────────────────────────────────
+
+// Tracks a proxy process this server launched via ctx_pxpipe_start, so
+// ctx_pxpipe_stop only ever kills a process we started ourselves — never a
+// pxpipe instance the user launched independently.
+let pxpipeChild: ChildProcess | null = null;
+
+function checkPortOpen(host: string, port: number, timeoutMs = 800): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const socket = createConnection({ host, port });
+    const finish = (result: boolean) => {
+      socket.removeAllListeners();
+      socket.destroy();
+      resolvePromise(result);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false));
+    socket.once("error", () => finish(false));
+  });
+}
+
+server.registerTool(
+  "ctx_pxpipe_status",
+  {
+    title: "pxpipe Proxy Status",
+    description:
+      "Checks whether pxpipe (https://github.com/teamchong/pxpipe) is installed and whether its local proxy is currently listening. " +
+      "pxpipe renders bulky context as images to cut LLM API token cost — a request-compression proxy, not a search backend, so it's separate from ctx_adaptive_rag. " +
+      "Use ctx_pxpipe_start to launch it, ctx_pxpipe_stop to stop a proxy this session started.",
+    inputSchema: z.object({}),
+  },
+  async () => {
+    const tools = detectExternalTools();
+    const { host, port } = getPxpipeEndpoint();
+    const running = await checkPortOpen(host, port);
+    const lines: string[] = [
+      tools.pxpipe.available
+        ? `[OK] pxpipe CLI: ${tools.pxpipe.command} (${tools.pxpipe.version})`
+        : `[WARN] pxpipe CLI: not found on PATH — install: ${tools.pxpipe.installUrl}`,
+      running
+        ? `[OK] Proxy: listening on ${host}:${port} — dashboard http://${host}:${port}/`
+        : `[WARN] Proxy: not listening on ${host}:${port}. Start it with ctx_pxpipe_start.`,
+    ];
+    if (pxpipeChild && pxpipeChild.exitCode === null && !pxpipeChild.killed) {
+      lines.push(`[OK] Managed process: PID ${pxpipeChild.pid} (launched this session via ctx_pxpipe_start)`);
+    }
+    return trackResponse("ctx_pxpipe_status", {
+      content: [{ type: "text" as const, text: lines.join("\n") }],
+    });
+  },
+);
+
+server.registerTool(
+  "ctx_pxpipe_start",
+  {
+    title: "Start pxpipe Proxy",
+    description:
+      "Launches the local pxpipe proxy in the background (default: `npx pxpipe-proxy`, or CONTEXT_MODE_PXPIPE_START_CMD if set) " +
+      "so it can start compressing bulky context into images before it reaches the model API. No-op if a proxy is already listening on its port. " +
+      "Stop it later with ctx_pxpipe_stop.",
+    inputSchema: z.object({
+      command: z
+        .string()
+        .optional()
+        .describe("Override the launch command for this call only, e.g. 'pxpipe proxy --port 47821'. Defaults to CONTEXT_MODE_PXPIPE_START_CMD or 'npx pxpipe-proxy'."),
+    }),
+  },
+  async ({ command }) => {
+    const { host, port } = getPxpipeEndpoint();
+
+    if (await checkPortOpen(host, port)) {
+      return trackResponse("ctx_pxpipe_start", {
+        content: [{ type: "text" as const, text: `pxpipe proxy is already listening on ${host}:${port} — nothing to start.` }],
+      });
+    }
+    if (pxpipeChild && pxpipeChild.exitCode === null && !pxpipeChild.killed) {
+      return trackResponse("ctx_pxpipe_start", {
+        content: [{
+          type: "text" as const,
+          text: `pxpipe was already launched this session (PID ${pxpipeChild.pid}) but isn't listening yet — check ctx_pxpipe_status again shortly.`,
+        }],
+      });
+    }
+
+    const parts = command && command.trim().length > 0
+      ? command.trim().split(/\s+/).filter(Boolean)
+      : getPxpipeStartCommand();
+    if (parts.length === 0) {
+      return trackResponse("ctx_pxpipe_start", {
+        content: [{ type: "text" as const, text: "Error: empty launch command." }],
+        isError: true,
+      });
+    }
+    const [cmd, ...args] = parts;
+
+    try {
+      const child = spawn(cmd, args, {
+        detached: true,
+        stdio: "ignore",
+        shell: process.platform === "win32",
+      });
+      child.unref();
+      pxpipeChild = child;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return trackResponse("ctx_pxpipe_start", {
+        content: [{ type: "text" as const, text: `Failed to launch pxpipe (${parts.join(" ")}): ${message}` }],
+        isError: true,
+      });
+    }
+
+    // Give the proxy a moment to bind before reporting status.
+    await new Promise((r) => setTimeout(r, 1500));
+    const running = await checkPortOpen(host, port, 1500);
+    const text = running
+      ? `Started pxpipe proxy (PID ${pxpipeChild.pid}) — listening on ${host}:${port}. Dashboard: http://${host}:${port}/`
+      : `Launched pxpipe (PID ${pxpipeChild.pid}, command: ${parts.join(" ")}) but it isn't listening on ${host}:${port} yet — check again with ctx_pxpipe_status in a few seconds.`;
+    return trackResponse("ctx_pxpipe_start", {
+      content: [{ type: "text" as const, text }],
+    });
+  },
+);
+
+server.registerTool(
+  "ctx_pxpipe_stop",
+  {
+    title: "Stop pxpipe Proxy",
+    description:
+      "Stops the pxpipe proxy process previously launched by ctx_pxpipe_start in this session. " +
+      "Does not touch a pxpipe instance started outside this session — stop that one manually.",
+    inputSchema: z.object({}),
+  },
+  async () => {
+    if (!pxpipeChild || pxpipeChild.exitCode !== null || pxpipeChild.killed) {
+      pxpipeChild = null;
+      return trackResponse("ctx_pxpipe_stop", {
+        content: [{ type: "text" as const, text: "No pxpipe process was started by ctx_pxpipe_start in this session — nothing to stop." }],
+      });
+    }
+    const pid = pxpipeChild.pid;
+    try {
+      pxpipeChild.kill();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      return trackResponse("ctx_pxpipe_stop", {
+        content: [{ type: "text" as const, text: `Failed to stop pxpipe (PID ${pid}): ${message}` }],
+        isError: true,
+      });
+    }
+    pxpipeChild = null;
+    return trackResponse("ctx_pxpipe_stop", {
+      content: [{ type: "text" as const, text: `Stopped pxpipe proxy (PID ${pid}).` }],
+    });
   },
 );
 

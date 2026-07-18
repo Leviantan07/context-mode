@@ -1,6 +1,6 @@
 /**
- * Detection tests for the optional Adaptive RAG backends (rtk / graphify /
- * nexus). Uses real subprocess spawns against tiny fake executables rather
+ * Detection tests for optional external tools (rtk / graphify / nexus /
+ * pxpipe). Uses real subprocess spawns against tiny fake executables rather
  * than mocking node:child_process, so the test exercises the actual
  * execFileSync probe path (PATH lookup, --version parsing, timeout).
  */
@@ -8,7 +8,7 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { detectExternalTools, getExternalToolsSummary } from "../../src/external-tools.js";
+import { detectExternalTools, getExternalToolsSummary, getPxpipeEndpoint, getPxpipeStartCommand } from "../../src/external-tools.js";
 
 const isWindows = process.platform === "win32";
 
@@ -39,11 +39,13 @@ describe("detectExternalTools", () => {
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
     expect(tools.rtk.available).toBe(false);
     expect(tools.graphify.available).toBe(false);
     expect(tools.nexus.available).toBe(false);
+    expect(tools.pxpipe.available).toBe(false);
     expect(tools.rtk.version).toBe("unknown");
   });
 
@@ -53,6 +55,7 @@ describe("detectExternalTools", () => {
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_GRAPHIFY_CMD: fakeGraphify,
       CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
     expect(tools.graphify.available).toBe(true);
@@ -66,6 +69,7 @@ describe("detectExternalTools", () => {
     expect(tools.rtk.command).toBe("rtk");
     expect(tools.graphify.command).toBe("graphify");
     expect(tools.nexus.command).toBe("nexus");
+    expect(tools.pxpipe.command).toBe("pxpipe");
   });
 
   test("each entry carries its key, human name, and install URL", () => {
@@ -74,6 +78,8 @@ describe("detectExternalTools", () => {
     expect(tools.rtk.installUrl).toBe("https://github.com/rtk-ai/rtk");
     expect(tools.graphify.installUrl).toBe("https://github.com/Graphify-Labs/graphify");
     expect(tools.nexus.installUrl).toBe("https://github.com/nexi-lab/nexus");
+    expect(tools.pxpipe.key).toBe("pxpipe");
+    expect(tools.pxpipe.installUrl).toBe("https://github.com/teamchong/pxpipe");
   });
 });
 
@@ -84,6 +90,7 @@ describe("getExternalToolsSummary", () => {
       CONTEXT_MODE_RTK_CMD: fakeRtk,
       CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
     const lines = getExternalToolsSummary(tools);
@@ -91,16 +98,47 @@ describe("getExternalToolsSummary", () => {
     expect(lines.some((l) => l.includes("rtk 0.9.0"))).toBe(true);
   });
 
-  test("formats missing tools as [WARN] with an install link", () => {
+  test("formats missing tools as [WARN] with an install link, naming the feature each powers", () => {
     const tools = detectExternalTools({
       CONTEXT_MODE_RTK_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_GRAPHIFY_CMD: "cm-definitely-not-a-real-binary-xyz",
       CONTEXT_MODE_NEXUS_CMD: "cm-definitely-not-a-real-binary-xyz",
+      CONTEXT_MODE_PXPIPE_CMD: "cm-definitely-not-a-real-binary-xyz",
     } as NodeJS.ProcessEnv);
 
     const lines = getExternalToolsSummary(tools);
     for (const line of lines) {
-      expect(line).toMatch(/^\[WARN\] .+: not found — optional, powers ctx_adaptive_rag\. Install: https:\/\/github\.com\/.+/);
+      expect(line).toMatch(/^\[WARN\] .+: not found — optional, powers .+\. Install: https:\/\/github\.com\/.+/);
     }
+    expect(lines.some((l) => l.includes("powers ctx_adaptive_rag"))).toBe(true);
+    expect(lines.some((l) => l.includes("powers ctx_pxpipe_status / ctx_pxpipe_start"))).toBe(true);
+  });
+});
+
+describe("getPxpipeEndpoint", () => {
+  test("defaults to 127.0.0.1:47821", () => {
+    expect(getPxpipeEndpoint({} as NodeJS.ProcessEnv)).toEqual({ host: "127.0.0.1", port: 47821 });
+  });
+
+  test("honors CONTEXT_MODE_PXPIPE_HOST / CONTEXT_MODE_PXPIPE_PORT overrides", () => {
+    expect(
+      getPxpipeEndpoint({ CONTEXT_MODE_PXPIPE_HOST: "0.0.0.0", CONTEXT_MODE_PXPIPE_PORT: "9999" } as NodeJS.ProcessEnv),
+    ).toEqual({ host: "0.0.0.0", port: 9999 });
+  });
+
+  test("falls back to the default port on a non-numeric override", () => {
+    expect(getPxpipeEndpoint({ CONTEXT_MODE_PXPIPE_PORT: "not-a-port" } as NodeJS.ProcessEnv).port).toBe(47821);
+  });
+});
+
+describe("getPxpipeStartCommand", () => {
+  test("defaults to ['npx', 'pxpipe-proxy']", () => {
+    expect(getPxpipeStartCommand({} as NodeJS.ProcessEnv)).toEqual(["npx", "pxpipe-proxy"]);
+  });
+
+  test("honors CONTEXT_MODE_PXPIPE_START_CMD and splits on whitespace", () => {
+    expect(
+      getPxpipeStartCommand({ CONTEXT_MODE_PXPIPE_START_CMD: "pxpipe proxy --port 9999" } as NodeJS.ProcessEnv),
+    ).toEqual(["pxpipe", "proxy", "--port", "9999"]);
   });
 });
