@@ -7,7 +7,7 @@
  */
 import { getDb, schema } from "@forge/db";
 import { executeTask } from "@forge/worker";
-import type { CreateTaskRequest, Task } from "@forge/shared";
+import { estimateTask, type CreateTaskRequest, type Task } from "@forge/shared";
 import { publish } from "./event-bus.js";
 
 function requireEnv(name: string): string {
@@ -18,6 +18,11 @@ function requireEnv(name: string): string {
 
 export async function createTask(req: CreateTaskRequest): Promise<Task> {
   const db = getDb();
+
+  // Compute the pre-run estimate now, before any run exists — this is the
+  // "estimé" the dashboard compares against actual consumption.
+  const estimate = estimateTask({ prompt: req.prompt, model: process.env.CLAUDE_CODE_MODEL });
+
   const [row] = await db
     .insert(schema.tasks)
     .values({
@@ -25,6 +30,8 @@ export async function createTask(req: CreateTaskRequest): Promise<Task> {
       projectId: req.projectId,
       prompt: req.prompt,
       status: "CREATED",
+      estimatedInputTokens: estimate.estimatedInputTokens,
+      estimatedOutputTokens: estimate.estimatedOutputTokens,
     })
     .returning();
 
@@ -59,6 +66,8 @@ export function toDomainTask(row: typeof schema.tasks.$inferSelect): Task {
     prompt: row.prompt,
     status: row.status as Task["status"],
     progress: row.progress,
+    estimatedInputTokens: row.estimatedInputTokens,
+    estimatedOutputTokens: row.estimatedOutputTokens,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     startedAt: row.startedAt?.toISOString() ?? null,

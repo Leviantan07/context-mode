@@ -23,6 +23,9 @@ export interface Task {
   status: TaskStatus;
   /** 0-100, best-effort — see TaskManager for how it's derived. */
   progress: number;
+  /** Pre-run estimate, set at creation (see @forge/shared estimateTask). */
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
   createdAt: string;
   updatedAt: string;
   startedAt: string | null;
@@ -116,4 +119,55 @@ export interface GlobalStats {
   averageDurationMs: number | null;
   totalTokens: number;
   totalCostUsd: number;
+}
+
+/** One task row as the mobile dashboard consumes it — estimate joined with actuals. */
+export interface DashboardRow {
+  taskId: string;
+  task: string;
+  model: string;
+  status: TaskStatus;
+  createdAt: string;
+  daysAgo: number;
+  durationMs: number | null;
+  estimatedTokens: number;
+  actualTokens: number;
+  actualInputTokens: number;
+  actualOutputTokens: number;
+  cacheReadTokens: number;
+  costUsd: number;
+  /** Deep-link into the LangSmith trace for this run, when available. */
+  langsmithTraceUrl: string | null;
+}
+
+export interface DashboardSummary {
+  tasks: number;
+  failed: number;
+  estimatedTokens: number;
+  actualTokens: number;
+  /** actual/estimated drift, %, signed. */
+  driftPct: number;
+  /** mean absolute percentage error of the estimate across tasks. */
+  mapePct: number;
+  costUsd: number;
+  cacheReadTokens: number;
+}
+
+export interface CompositionByModel {
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  tasks: number;
+}
+
+/** GET /dashboard?range=N — everything the mobile telemetry client renders. */
+export interface DashboardPayload {
+  rangeDays: number;
+  /** which backend supplied the actual-token numbers. */
+  source: "postgres" | "langsmith";
+  summary: DashboardSummary;
+  rows: DashboardRow[];
+  composition: CompositionByModel[];
+  generatedAt: string;
 }

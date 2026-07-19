@@ -29,6 +29,10 @@ export const tasks = pgTable("tasks", {
   prompt: text("prompt").notNull(),
   status: text("status").notNull().default("CREATED"),
   progress: integer("progress").notNull().default(0),
+  // Pre-run estimate (see @forge/shared estimateTask) — the "estimé" the
+  // dashboard compares against actual consumption.
+  estimatedInputTokens: integer("estimated_input_tokens").notNull().default(0),
+  estimatedOutputTokens: integer("estimated_output_tokens").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp("started_at", { withTimezone: true }),

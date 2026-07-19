@@ -38,11 +38,14 @@ export async function taskRoutes(app: FastifyInstance): Promise<void> {
   });
 
   // SSE — live task timeline. The dashboard's stand-in for push notifications.
+  // This writes raw headers, bypassing @fastify/cors, so the cross-origin
+  // header is set here by hand (EventSource from the phone PWA needs it).
   app.get<{ Params: { id: string } }>("/tasks/:id/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      "Access-Control-Allow-Origin": process.env.FORGE_CORS_ORIGIN ?? "*",
     });
 
     const unsubscribe = subscribe(request.params.id, (event) => {

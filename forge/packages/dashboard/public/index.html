@@ -1,219 +1,479 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Forge</title>
+<meta name="theme-color" content="#101216" />
+<title>Forge — Télémétrie</title>
 <link rel="manifest" href="./manifest.json" />
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: #0b0d12; color: #e6e8ec; padding-bottom: env(safe-area-inset-bottom);
+  :root {
+    --ground:#eef0f3; --surface:#fff; --surface-2:#f6f7f9; --hair:#dde1e7; --hair-strong:#c7cdd6;
+    --ink:#1a1f27; --ink-2:#4a5461; --ink-3:#78828f; --accent:#d9772e; --accent-ink:#b45c17;
+    --est:#166ca8; --act:#d9772e; --cache:#8b4ba0; --over:#d9772e; --under:#166ca8;
+    --ok:#2f8f6b; --ok-bg:#e3f2ec; --fail:#c0392b; --fail-bg:#fbe7e4; --warn:#b7841f; --warn-bg:#f6edd6;
+    --shadow:0 1px 2px rgba(20,30,45,.06),0 8px 24px rgba(20,30,45,.06); --radius:14px;
   }
-  header {
-    position: sticky; top: 0; z-index: 10; background: #11141b; padding: 14px 16px;
-    border-bottom: 1px solid #1f2430; display: flex; align-items: center; justify-content: space-between;
-  }
-  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
-  header button { background: none; border: none; color: #8b93a7; font-size: 14px; }
-  main { padding: 16px; max-width: 640px; margin: 0 auto; }
-  .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
-  .stat { background: #151923; border-radius: 10px; padding: 10px; text-align: center; }
-  .stat .value { font-size: 18px; font-weight: 700; }
-  .stat .label { font-size: 11px; color: #8b93a7; margin-top: 2px; }
-  textarea {
-    width: 100%; min-height: 72px; background: #151923; border: 1px solid #262c3a; border-radius: 10px;
-    color: #e6e8ec; padding: 12px; font-size: 15px; resize: vertical;
-  }
-  button.primary {
-    width: 100%; margin-top: 10px; background: #4f7cff; color: white; border: none; border-radius: 10px;
-    padding: 13px; font-size: 15px; font-weight: 600;
-  }
-  button.primary:disabled { opacity: 0.5; }
-  .section-title { font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em; color: #8b93a7; margin: 24px 0 10px; }
-  .task-card {
-    background: #151923; border-radius: 10px; padding: 12px; margin-bottom: 8px; cursor: pointer;
-    border: 1px solid #1f2430;
-  }
-  .task-card .prompt { font-size: 14px; margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .task-card .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #8b93a7; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
-  .badge.CREATED, .badge.ANALYZING { background: #2a3550; color: #8fb1ff; }
-  .badge.EXECUTING, .badge.TESTING { background: #3d3418; color: #ffd166; }
-  .badge.COMPLETED { background: #1a3d2a; color: #6ee7a0; }
-  .badge.FAILED { background: #3d1a1a; color: #ff8080; }
-  .timeline-item { padding: 8px 0; border-bottom: 1px solid #1a1f2a; font-size: 13px; }
-  .timeline-item .type { color: #8b93a7; font-size: 11px; text-transform: uppercase; margin-bottom: 2px; }
-  .timeline-item pre { white-space: pre-wrap; word-break: break-word; margin: 4px 0 0; font-size: 12px; color: #c3c9d6; }
-  #back { display: none; }
-  #detail { display: none; }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#101216; --surface:#191c22; --surface-2:#14171c; --hair:#262b33; --hair-strong:#333a44;
+    --ink:#eef1f5; --ink-2:#b3bcc8; --ink-3:#7c8794; --accent:#e8863a; --accent-ink:#f0a061;
+    --est:#4d9bd0; --act:#e8863a; --cache:#b061c9; --over:#e8863a; --under:#4d9bd0;
+    --ok:#4fb98c; --ok-bg:#16302a; --fail:#e0685a; --fail-bg:#331f1e; --warn:#d6a63e; --warn-bg:#302914;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="light"]{--ground:#eef0f3;--surface:#fff;--surface-2:#f6f7f9;--hair:#dde1e7;--hair-strong:#c7cdd6;--ink:#1a1f27;--ink-2:#4a5461;--ink-3:#78828f;--accent:#d9772e;--accent-ink:#b45c17;--est:#166ca8;--act:#d9772e;--cache:#8b4ba0;--over:#d9772e;--under:#166ca8;--ok:#2f8f6b;--ok-bg:#e3f2ec;--fail:#c0392b;--fail-bg:#fbe7e4;--warn:#b7841f;--warn-bg:#f6edd6;--shadow:0 1px 2px rgba(20,30,45,.06),0 8px 24px rgba(20,30,45,.06);}
+  :root[data-theme="dark"]{--ground:#101216;--surface:#191c22;--surface-2:#14171c;--hair:#262b33;--hair-strong:#333a44;--ink:#eef1f5;--ink-2:#b3bcc8;--ink-3:#7c8794;--accent:#e8863a;--accent-ink:#f0a061;--est:#4d9bd0;--act:#e8863a;--cache:#b061c9;--over:#e8863a;--under:#4d9bd0;--ok:#4fb98c;--ok-bg:#16302a;--fail:#e0685a;--fail-bg:#331f1e;--warn:#d6a63e;--warn-bg:#302914;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);}
+
+  *{box-sizing:border-box;} html{-webkit-text-size-adjust:100%;}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.45;padding-bottom:calc(28px + env(safe-area-inset-bottom));-webkit-font-smoothing:antialiased;}
+  .mono{font-family:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code",Menlo,Consolas,monospace;font-variant-numeric:tabular-nums;}
+  .eyebrow{font-size:10.5px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);}
+
+  header{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--surface) 86%,transparent);
+    backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--hair);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;}
+  .bar{display:flex;align-items:center;gap:10px;max-width:720px;margin:0 auto;}
+  .brand{display:flex;align-items:center;gap:9px;margin-right:auto;}
+  .anvil{width:26px;height:26px;border-radius:7px;flex:none;background:radial-gradient(circle at 50% 120%,var(--accent),transparent 62%),linear-gradient(160deg,var(--hair-strong),var(--surface-2));border:1px solid var(--hair-strong);display:grid;place-items:center;font-size:14px;}
+  .brand b{font-size:15px;letter-spacing:.04em;} .brand span{display:block;font-size:10px;color:var(--ink-3);letter-spacing:.1em;text-transform:uppercase;}
+  .live{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--ink-2);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg);}
+  .dot.off{background:var(--ink-3);box-shadow:0 0 0 3px var(--hair);}
+  .icon-btn{appearance:none;border:1px solid var(--hair-strong);background:var(--surface-2);color:var(--ink-2);width:34px;height:34px;border-radius:9px;font-size:15px;cursor:pointer;display:grid;place-items:center;}
+  .icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+
+  main{max-width:720px;margin:0 auto;padding:16px 16px 0;display:flex;flex-direction:column;gap:16px;}
+
+  .filters{display:flex;align-items:center;gap:10px;}
+  .seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--hair);border-radius:10px;padding:3px;gap:2px;}
+  .seg button{appearance:none;border:0;background:transparent;color:var(--ink-2);font:inherit;font-size:12.5px;font-weight:600;padding:6px 12px;border-radius:7px;cursor:pointer;font-variant-numeric:tabular-nums;}
+  .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow);}
+  .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .filters .scope{margin-left:auto;font-size:11px;color:var(--ink-3);display:inline-flex;align-items:center;gap:6px;}
+  .srcbadge{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:6px;border:1px solid var(--hair);color:var(--ink-2);background:var(--surface-2);}
+
+  .card{background:var(--surface);border:1px solid var(--hair);border-radius:var(--radius);box-shadow:var(--shadow);padding:16px;}
+  .card>.head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px;}
+  .card>.head h2{margin:2px 0 0;font-size:15px;font-weight:650;} .card>.head p{margin:2px 0 0;font-size:11.5px;color:var(--ink-3);}
+
+  /* composer */
+  .composer textarea{width:100%;min-height:64px;background:var(--surface-2);border:1px solid var(--hair);border-radius:10px;color:var(--ink);padding:12px;font:inherit;font-size:15px;resize:vertical;}
+  .composer textarea:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .composer .foot{display:flex;align-items:center;gap:10px;margin-top:10px;}
+  .composer .est{font-size:11.5px;color:var(--ink-3);margin-right:auto;}
+  .composer .est b{color:var(--ink-2);}
+  .btn{appearance:none;border:0;background:var(--accent);color:#fff;font:inherit;font-weight:700;font-size:14px;padding:11px 16px;border-radius:10px;cursor:pointer;}
+  .btn:disabled{opacity:.5;} .btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px;}
+
+  /* live strip */
+  .livestrip{display:flex;flex-direction:column;gap:8px;}
+  .livestrip .row{display:flex;align-items:center;gap:9px;}
+  .livestrip .task{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .prog{height:6px;background:var(--surface-2);border-radius:3px;overflow:hidden;}
+  .prog i{display:block;height:100%;background:var(--accent);border-radius:3px;transition:width .3s ease;}
+  .steps{font-size:11.5px;color:var(--ink-2);max-height:96px;overflow:auto;display:flex;flex-direction:column;gap:2px;}
+
+  .hero{padding:18px 16px 16px;}
+  .hero .big{font-size:44px;font-weight:700;letter-spacing:-.02em;line-height:1;margin-top:6px;}
+  .hero .unit{font-size:15px;color:var(--ink-3);font-weight:600;margin-left:6px;}
+  .delta{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:700;padding:4px 9px;border-radius:999px;margin-top:12px;}
+  .delta.up{color:var(--accent-ink);background:color-mix(in srgb,var(--act) 15%,transparent);}
+  .delta.down{color:var(--est);background:color-mix(in srgb,var(--est) 15%,transparent);}
+  .hero .compare{margin-top:16px;display:flex;flex-direction:column;gap:9px;}
+  .cmp-row{display:grid;grid-template-columns:62px 1fr auto;align-items:center;gap:10px;}
+  .cmp-row .lbl{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);}
+  .cmp-track{height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;}
+  .cmp-fill{height:100%;border-radius:6px;} .cmp-row .val{font-size:13px;font-weight:650;}
+
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .tile{background:var(--surface);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:13px;}
+  .tile .k{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);}
+  .tile .v{font-size:25px;font-weight:700;margin-top:4px;} .tile .v small{font-size:13px;color:var(--ink-3);font-weight:600;}
+  .tile .sub{font-size:11.5px;color:var(--ink-2);margin-top:3px;}
+
+  .legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--ink-2);}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none;} .swatch.line{height:3px;border-radius:2px;width:15px;}
+
+  .chartwrap{position:relative;} svg.chart{display:block;width:100%;height:auto;overflow:visible;touch-action:pan-y;}
+  .grid{stroke:var(--hair);stroke-width:1;} .axislbl{fill:var(--ink-3);font-size:9.5px;} .endlbl{font-size:11px;font-weight:700;}
+
+  .var-scale{display:grid;grid-template-columns:1fr auto 1fr;font-size:10px;color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px;}
+  .var-scale .l{text-align:left;} .var-scale .c{text-align:center;} .var-scale .r{text-align:right;}
+  .vrows{display:flex;flex-direction:column;gap:9px;}
+  .vrow{display:grid;gap:4px;}
+  .vrow .name{font-size:12.5px;font-weight:550;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .vbar{position:relative;height:20px;}
+  .vbar .zero{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:var(--hair-strong);}
+  .vseg{position:absolute;top:2px;height:16px;border-radius:4px;}
+  .vseg-tag{position:absolute;top:50%;transform:translateY(-50%);font-size:11px;font-weight:700;white-space:nowrap;}
+
+  .comp{display:flex;flex-direction:column;gap:14px;}
+  .comp-row .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+  .comp-row .top .m{font-size:13px;font-weight:650;} .comp-row .top .t{font-size:12px;color:var(--ink-3);}
+  .stack{display:flex;height:18px;gap:2px;} .stack i{display:block;height:100%;border-radius:3px;}
+  .stack i:first-child{border-radius:5px 3px 3px 5px;} .stack i:last-child{border-radius:3px 5px 5px 3px;}
+
+  .runs{display:flex;flex-direction:column;}
+  .run{display:grid;grid-template-columns:1fr auto;gap:4px 12px;align-items:center;padding:12px 2px;border-top:1px solid var(--hair);}
+  .run:first-child{border-top:0;}
+  .run .rn{font-size:13.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .run .meta{grid-column:1;font-size:11.5px;color:var(--ink-3);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .run .right{grid-column:2;grid-row:1 / span 2;text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:3px;}
+  .run .rt{font-size:14px;font-weight:700;}
+  .vchip{font-size:11px;font-weight:700;padding:2px 7px;border-radius:999px;}
+  .vchip.up{color:var(--accent-ink);background:color-mix(in srgb,var(--act) 15%,transparent);}
+  .vchip.down{color:var(--est);background:color-mix(in srgb,var(--est) 15%,transparent);}
+  .pill{font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:4px;}
+  .pill.ok{color:var(--ok);background:var(--ok-bg);} .pill.fail{color:var(--fail);background:var(--fail-bg);} .pill.run{color:var(--warn);background:var(--warn-bg);}
+  .modeltag{font-size:10.5px;font-weight:700;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--hair);padding:1px 7px;border-radius:6px;}
+  .trace{font-size:11px;color:var(--est);text-decoration:none;font-weight:600;}
+  .trace:hover{text-decoration:underline;}
+
+  .empty{color:var(--ink-3);font-size:13px;text-align:center;padding:22px 8px;}
+  .connect{max-width:420px;margin:8vh auto;padding:24px;text-align:center;}
+  .connect h1{font-size:20px;margin:0 0 6px;} .connect p{color:var(--ink-2);font-size:14px;}
+  .connect input{width:100%;margin-top:14px;padding:12px;border-radius:10px;border:1px solid var(--hair-strong);background:var(--surface);color:var(--ink);font:inherit;}
+  .connect .err{color:var(--fail);font-size:12.5px;margin-top:10px;min-height:16px;}
+
+  .disc{border:0;background:transparent;color:var(--ink-2);font:inherit;font-size:12px;font-weight:600;padding:6px 0;cursor:pointer;}
+  table.data{width:100%;border-collapse:collapse;font-size:12px;margin-top:6px;}
+  table.data th,table.data td{text-align:right;padding:7px 6px;border-bottom:1px solid var(--hair);}
+  table.data th:first-child,table.data td:first-child{text-align:left;}
+  table.data th{color:var(--ink-3);font-weight:700;font-size:10px;letter-spacing:.06em;text-transform:uppercase;}
+  table.data td.name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px;}
+
+  footer{max-width:720px;margin:20px auto 0;padding:0 16px;color:var(--ink-3);font-size:11px;text-align:center;}
+
+  #tip{position:fixed;z-index:50;pointer-events:none;opacity:0;transform:translate(-50%,-8px);background:#05070a;color:#eef1f5;font-size:11.5px;padding:8px 10px;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.28);max-width:220px;transition:opacity .1s;}
+  #tip .th{font-weight:700;margin-bottom:3px;} #tip .tr{display:flex;justify-content:space-between;gap:14px;} #tip .tr b{font-variant-numeric:tabular-nums;} #tip .muted{color:rgba(255,255,255,.6);}
+  .hide{display:none !important;}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important;}}
 </style>
 </head>
 <body>
+
 <header>
-  <button id="back" onclick="showList()">&larr; Back</button>
-  <h1 id="title">Forge</h1>
-  <button onclick="configure()">⚙</button>
+  <div class="bar">
+    <div class="brand"><div class="anvil">⚒️</div><div><b class="mono">FORGE</b><span>Télémétrie</span></div></div>
+    <span class="live"><span class="dot off" id="livedot"></span><span id="livetxt">hors ligne</span></span>
+    <button class="icon-btn" id="settings" aria-label="Réglages">⚙</button>
+    <button class="icon-btn" id="theme" aria-label="Basculer le thème">◐</button>
+  </div>
 </header>
-<main>
-  <section id="list">
-    <div class="stats" id="stats"></div>
 
-    <div class="section-title">New task</div>
-    <textarea id="prompt" placeholder="e.g. Add authentication to my application"></textarea>
-    <button class="primary" id="submit" onclick="submitTask()">Send to Forge</button>
+<!-- connect screen -->
+<div id="connect" class="connect hide">
+  <div class="anvil" style="width:44px;height:44px;font-size:22px;margin:0 auto 12px"></div>
+  <h1 class="mono">FORGE</h1>
+  <p>Adresse de l'API Forge à piloter depuis ce téléphone.</p>
+  <input id="apiInput" type="url" inputmode="url" placeholder="http://192.168.1.x:8787" />
+  <div class="err" id="connectErr"></div>
+  <button class="btn" id="connectBtn" style="width:100%;margin-top:12px">Connecter</button>
+</div>
 
-    <div class="section-title">Recent tasks</div>
-    <div id="tasks"></div>
+<main id="app" class="hide">
+  <div class="filters">
+    <div class="seg" role="group" aria-label="Période">
+      <button data-range="1" aria-pressed="false">24 h</button>
+      <button data-range="7" aria-pressed="true">7 j</button>
+      <button data-range="30" aria-pressed="false">30 j</button>
+    </div>
+    <span class="scope mono" id="scope"><span class="srcbadge" id="src"></span></span>
+  </div>
+
+  <!-- composer: pilot the Forge from the phone -->
+  <section class="card composer" aria-labelledby="cp">
+    <div class="eyebrow" id="cp">Nouvelle tâche</div>
+    <textarea id="prompt" placeholder="ex. Ajouter l'authentification à mon application" style="margin-top:8px"></textarea>
+    <div class="foot">
+      <span class="est" id="estline"></span>
+      <button class="btn" id="send">Envoyer à la Forge</button>
+    </div>
   </section>
 
-  <section id="detail">
-    <div class="stats" id="detailMeta"></div>
-    <div class="section-title">Timeline</div>
-    <div id="timeline"></div>
+  <!-- live task strip (shown while a task runs) -->
+  <section class="card livestrip hide" id="livecard" aria-live="polite">
+    <div class="row">
+      <span class="pill run" id="livepill">EN COURS</span>
+      <span class="task" id="livetask"></span>
+    </div>
+    <div class="prog"><i id="liveprog" style="width:0%"></i></div>
+    <div class="steps mono" id="livesteps"></div>
+  </section>
+
+  <!-- HERO -->
+  <section class="card hero">
+    <div class="eyebrow">Tokens réels consommés</div>
+    <div class="big mono" id="hero-tokens">—</div>
+    <div id="hero-delta"></div>
+    <div class="compare">
+      <div class="cmp-row"><span class="lbl">Estimé</span><span class="cmp-track"><span class="cmp-fill" id="cmp-est" style="background:var(--est)"></span></span><span class="val mono" id="cmp-est-v"></span></div>
+      <div class="cmp-row"><span class="lbl">Réel</span><span class="cmp-track"><span class="cmp-fill" id="cmp-act" style="background:var(--act)"></span></span><span class="val mono" id="cmp-act-v"></span></div>
+    </div>
+  </section>
+
+  <section class="tiles">
+    <div class="tile"><div class="k">Tâches</div><div class="v mono" id="t-tasks">—</div><div class="sub" id="t-tasks-sub"></div></div>
+    <div class="tile"><div class="k">Précision d'estimation</div><div class="v mono" id="t-acc">—</div><div class="sub" id="t-acc-sub"></div></div>
+    <div class="tile"><div class="k">Coût réel</div><div class="v mono" id="t-cost">—</div><div class="sub" id="t-cost-sub"></div></div>
+    <div class="tile"><div class="k">Cache réutilisé</div><div class="v mono" id="t-cache">—</div><div class="sub" id="t-cache-sub"></div></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><div><div class="eyebrow">Par exécution</div><h2>Estimé vs réel</h2></div></div>
+    <div class="legend" style="margin-bottom:10px"><span><i class="swatch line" style="background:var(--est)"></i>Estimé</span><span><i class="swatch line" style="background:var(--act)"></i>Réel</span></div>
+    <div class="chartwrap"><div id="linechart"></div></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><div><div class="eyebrow">Réel − estimé, en %</div><h2>Écart par tâche</h2></div></div>
+    <div class="var-scale"><span class="l">◄ sous-estimé</span><span class="c">0</span><span class="r">dépassement ►</span></div>
+    <div class="vrows" id="varbars"></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><div><div class="eyebrow">Entrée · sortie · cache, par modèle</div><h2>Composition des tokens</h2></div></div>
+    <div class="legend" style="margin-bottom:14px"><span><i class="swatch" style="background:var(--est)"></i>Entrée</span><span><i class="swatch" style="background:var(--act)"></i>Sortie</span><span><i class="swatch" style="background:var(--cache)"></i>Cache</span></div>
+    <div class="comp" id="composition"></div>
+  </section>
+
+  <section class="card">
+    <div class="head"><div><div class="eyebrow">Estimé, réel, écart, trace</div><h2>Exécutions récentes</h2></div></div>
+    <div class="runs" id="runs"></div>
+    <button class="disc" id="tabletoggle" aria-expanded="false">▸ Voir en tableau</button>
+    <div id="tablebox" hidden></div>
   </section>
 </main>
 
+<footer id="foot" class="hide">
+  Estimation calculée à la création (@forge/shared). Réel = tokens facturés, relevés via <span id="footsrc">Postgres</span>.
+  Chaque tâche ouvre sa trace complète dans LangSmith.
+</footer>
+
+<div id="tip" role="status" aria-live="off"></div>
+
 <script>
-  const API = localStorage.getItem("forge_api_base") || prompt("Forge API base URL", "http://localhost:8787") || "http://localhost:8787";
-  localStorage.setItem("forge_api_base", API);
+(() => {
+  "use strict";
+  const LS_API = "forge_api_base";
+  let apiBase = localStorage.getItem(LS_API) || "";
+  let range = 7, payload = null;
+  let liveES = null;
 
-  function configure() {
-    const next = prompt("Forge API base URL", API);
-    if (next) { localStorage.setItem("forge_api_base", next); location.reload(); }
+  const $ = id => document.getElementById(id);
+  const nf = new Intl.NumberFormat("fr-FR");
+  const enc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+  function fmt(n){ n=Math.round(n||0); if(n>=1e6) return (n/1e6).toFixed(n>=1e7?0:2).replace(".",",")+" M"; if(n>=1e3) return Math.round(n/1e3)+" k"; return nf.format(n); }
+  function money(n){ return "$"+(n||0).toFixed(2).replace(".",","); }
+  function pct(n,d=0){ return (n>=0?"+":"−")+Math.abs(n).toFixed(d)+" %"; }
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+  function currentTheme(){ return document.documentElement.getAttribute("data-theme") || (matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light"); }
+  function pal(){ const d=currentTheme()==="dark";
+    return d?{est:"#4d9bd0",act:"#e8863a",cache:"#b061c9",over:"#e8863a",under:"#4d9bd0",grid:"#262b33",ink3:"#7c8794",surface:"#191c22"}
+            :{est:"#166ca8",act:"#d9772e",cache:"#8b4ba0",over:"#d9772e",under:"#166ca8",grid:"#dde1e7",ink3:"#78828f",surface:"#ffffff"};
   }
 
-  function showList() {
-    document.getElementById("list").style.display = "block";
-    document.getElementById("detail").style.display = "none";
-    document.getElementById("back").style.display = "none";
-    document.getElementById("title").textContent = "Forge";
-    if (currentEventSource) { currentEventSource.close(); currentEventSource = null; }
-    loadList();
+  // ---- API ----
+  async function api(path, opts){ const r = await fetch(apiBase.replace(/\/$/,"") + path, opts); if(!r.ok) throw new Error("HTTP "+r.status+" "+(await r.text().catch(()=>""))); return r.json(); }
+  function setLive(on){ $("livedot").classList.toggle("off",!on); $("livetxt").textContent = on?"en direct":"hors ligne"; }
+
+  // ---- tooltip ----
+  const tip=$("tip");
+  function showTip(html,x,y){ tip.innerHTML=html; tip.style.left=clamp(x,90,innerWidth-90)+"px"; tip.style.top=(y-14)+"px"; tip.style.opacity="1"; }
+  const hideTip=()=>tip.style.opacity="0";
+
+  // ---- boot / connect ----
+  async function boot(){
+    if(!apiBase){ showConnect(); return; }
+    try{
+      await api("/health");
+      setLive(true);
+      $("connect").classList.add("hide"); $("app").classList.remove("hide"); $("foot").classList.remove("hide");
+      await load();
+    }catch(e){ setLive(false); showConnect("Injoignable : "+e.message); }
+  }
+  function showConnect(err){
+    $("app").classList.add("hide"); $("foot").classList.add("hide"); $("connect").classList.remove("hide");
+    $("apiInput").value = apiBase || location.origin.startsWith("http")?apiBase:"";
+    $("connectErr").textContent = err || "";
+  }
+  $("connectBtn").addEventListener("click", ()=>{ const v=$("apiInput").value.trim(); if(!v) return; apiBase=v; localStorage.setItem(LS_API,v); boot(); });
+  $("settings").addEventListener("click", ()=>{ showConnect(); });
+
+  async function load(){
+    try{
+      payload = await api("/dashboard?range="+range);
+      renderAll(payload);
+    }catch(e){ setLive(false); showConnect("Erreur de chargement : "+e.message); }
   }
 
-  async function loadList() {
-    const [statsRes, tasksRes] = await Promise.all([
-      fetch(`${API}/stats`).then((r) => r.json()),
-      fetch(`${API}/tasks`).then((r) => r.json()),
-    ]);
-    renderStats(statsRes.stats);
-    renderTasks(tasksRes.tasks);
+  // ---- estimate preview in composer ----
+  const P = { opus:[60000,30000,40,18], sonnet:[32000,14000,28,12], haiku:[12000,4000,16,6] };
+  function previewEstimate(){
+    const t = $("prompt").value.trim();
+    if(!t){ $("estline").innerHTML=""; return; }
+    const pt = Math.ceil(t.length/4);
+    const p = P.sonnet; // client-side preview mirrors the server's default profile
+    const est = Math.round(p[0]+pt*p[2] + p[1]+pt*p[3]);
+    $("estline").innerHTML = `estimé <b class="mono">≈ ${fmt(est)}</b> tokens`;
   }
+  $("prompt").addEventListener("input", previewEstimate);
 
-  function renderStats(s) {
-    const items = [
-      ["Tasks", s.totalTasks],
-      ["Completed", s.completedTasks],
-      ["Failed", s.failedTasks],
-      ["Avg time", s.averageDurationMs != null ? `${Math.round(s.averageDurationMs / 1000)}s` : "—"],
-      ["Tokens", s.totalTokens.toLocaleString()],
-      ["Cost", `$${s.totalCostUsd.toFixed(2)}`],
-    ];
-    document.getElementById("stats").innerHTML = items
-      .map(([label, value]) => `<div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>`)
-      .join("");
-  }
+  // ---- send task (pilot from phone) ----
+  $("send").addEventListener("click", async ()=>{
+    const t=$("prompt").value.trim(); if(!t) return;
+    const btn=$("send"); btn.disabled=true;
+    try{
+      const { task } = await api("/tasks",{ method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify({ prompt:t }) });
+      $("prompt").value=""; previewEstimate();
+      watchTask(task);
+      await load();
+    }catch(e){ alert("Échec de création : "+e.message); }
+    finally{ btn.disabled=false; }
+  });
 
-  function renderTasks(tasks) {
-    document.getElementById("tasks").innerHTML = tasks
-      .map(
-        (t) => `
-        <div class="task-card" onclick="openTask('${t.id}')">
-          <div class="prompt">${escapeHtml(t.prompt)}</div>
-          <div class="meta">
-            <span class="badge ${t.status}">${t.status}</span>
-            <span>${t.durationMs != null ? Math.round(t.durationMs / 1000) + "s" : new Date(t.createdAt).toLocaleTimeString()}</span>
-          </div>
-        </div>`
-      )
-      .join("") || `<p style="color:#8b93a7">No tasks yet — send one above.</p>`;
-  }
-
-  async function submitTask() {
-    const promptEl = document.getElementById("prompt");
-    const text = promptEl.value.trim();
-    if (!text) return;
-    const btn = document.getElementById("submit");
-    btn.disabled = true;
-    try {
-      const res = await fetch(`${API}/tasks`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ prompt: text }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const { task } = await res.json();
-      promptEl.value = "";
-      await loadList();
-      openTask(task.id);
-    } catch (err) {
-      alert("Failed to create task: " + err.message);
-    } finally {
-      btn.disabled = false;
-    }
-  }
-
-  let currentEventSource = null;
-
-  async function openTask(id) {
-    document.getElementById("list").style.display = "none";
-    document.getElementById("detail").style.display = "block";
-    document.getElementById("back").style.display = "inline";
-    document.getElementById("title").textContent = "Task";
-    document.getElementById("timeline").innerHTML = "";
-
-    const res = await fetch(`${API}/tasks/${id}`);
-    const { task, toolUsage, modelUsage } = await res.json();
-    renderDetailMeta(task, toolUsage, modelUsage);
-
-    if (currentEventSource) currentEventSource.close();
-    currentEventSource = new EventSource(`${API}/tasks/${id}/events`);
-    currentEventSource.onmessage = (msg) => {
-      const event = JSON.parse(msg.data);
-      appendTimelineEvent(event);
-      if (event.type === "status_change" || event.type === "result") {
-        fetch(`${API}/tasks/${id}`).then((r) => r.json()).then(({ task, toolUsage, modelUsage }) =>
-          renderDetailMeta(task, toolUsage, modelUsage)
-        );
-      }
+  // ---- live SSE for the task just launched ----
+  function watchTask(task){
+    if(liveES) liveES.close();
+    const card=$("livecard"); card.classList.remove("hide");
+    $("livetask").textContent = task.prompt;
+    $("livepill").textContent = "EN COURS"; $("livepill").className="pill run";
+    $("liveprog").style.width="4%"; $("livesteps").innerHTML="";
+    liveES = new EventSource(apiBase.replace(/\/$/,"") + "/tasks/"+task.id+"/events");
+    liveES.onmessage = ev => {
+      const e = JSON.parse(ev.data);
+      const line = document.createElement("div");
+      if(e.type==="status_change"){ line.textContent="▸ "+e.status; $("livepill").textContent=e.status; }
+      else if(e.type==="progress"){ $("liveprog").style.width=e.progress+"%"; return; }
+      else if(e.type==="tool_call"){ line.textContent="⚒ "+e.tool.toolName+(e.tool.success?"":" ✕"); }
+      else if(e.type==="model_usage"){ line.textContent="◈ "+fmt(e.usage.inputTokens)+" in / "+fmt(e.usage.outputTokens)+" out"; }
+      else if(e.type==="error"){ line.textContent="✕ "+e.message; }
+      else if(e.type==="result"){
+        $("liveprog").style.width="100%";
+        $("livepill").textContent="TERMINÉ"; $("livepill").className="pill ok";
+        line.textContent="✓ "+(e.durationMs?Math.round(e.durationMs/1000)+"s":"terminé");
+        liveES.close(); setTimeout(load, 800);
+      } else return;
+      $("livesteps").prepend(line);
     };
+    liveES.onerror = ()=>{ /* keep card; server may have closed on completion */ };
   }
 
-  function renderDetailMeta(task, toolUsage, modelUsage) {
-    const totalTokens = (modelUsage || []).reduce((sum, m) => sum + m.inputTokens + m.outputTokens, 0);
-    const items = [
-      ["Status", task.status],
-      ["Duration", task.durationMs != null ? `${Math.round(task.durationMs / 1000)}s` : "running"],
-      ["Tools used", (toolUsage || []).length],
-      ["Tokens", totalTokens.toLocaleString()],
-    ];
-    document.getElementById("detailMeta").innerHTML = items
-      .map(([label, value]) => `<div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>`)
-      .join("");
+  // ---- render ----
+  function measured(rows){ return rows.filter(r=>r.actualTokens>0 && r.estimatedTokens>0); }
+
+  function renderAll(pl){
+    $("footsrc").textContent = pl.source==="langsmith"?"LangSmith":"Postgres";
+    $("scope").innerHTML = pl.rows.length+" exéc. <span class=\"srcbadge\">"+enc(pl.source)+"</span>";
+    renderSummary(pl.summary);
+    renderLine(measured(pl.rows));
+    renderVariance(measured(pl.rows));
+    renderComposition(pl.composition);
+    renderRuns(pl.rows);
   }
 
-  function appendTimelineEvent(event) {
-    const el = document.createElement("div");
-    el.className = "timeline-item";
-    let body = "";
-    if (event.type === "assistant_text") body = `<pre>${escapeHtml(event.text)}</pre>`;
-    else if (event.type === "tool_call") body = `<pre>${escapeHtml(event.tool.toolName)} (${event.tool.success ? "ok" : "failed"}, ${event.tool.durationMs ?? "?"}ms)</pre>`;
-    else if (event.type === "model_usage") body = `<pre>${event.usage.model}: ${event.usage.inputTokens}in / ${event.usage.outputTokens}out</pre>`;
-    else if (event.type === "status_change") body = `<pre>${event.status}</pre>`;
-    else if (event.type === "error") body = `<pre style="color:#ff8080">${escapeHtml(event.message)}</pre>`;
-    else if (event.type === "result") body = `<pre>${escapeHtml(event.result || "(no output)")}</pre>`;
-    el.innerHTML = `<div class="type">${event.type} · ${new Date(event.timestamp).toLocaleTimeString()}</div>${body}`;
-    document.getElementById("timeline").prepend(el);
+  function renderSummary(s){
+    const drift=s.driftPct, up=drift>=0, acc=Math.max(0,100-s.mapePct);
+    $("hero-tokens").innerHTML = fmt(s.actualTokens).replace(" ",'<span class="unit">')+"</span> tokens";
+    $("hero-delta").innerHTML = s.estimatedTokens
+      ? `<span class="delta ${up?"up":"down"}">${up?"▲":"▼"} ${pct(drift,1)} vs estimé (${fmt(s.estimatedTokens)})</span>`
+      : `<span class="delta down">en attente d'exécutions</span>`;
+    const maxT=Math.max(s.estimatedTokens,s.actualTokens,1);
+    $("cmp-est").style.width=(s.estimatedTokens/maxT*100)+"%"; $("cmp-act").style.width=(s.actualTokens/maxT*100)+"%";
+    $("cmp-est-v").textContent=fmt(s.estimatedTokens); $("cmp-act-v").textContent=fmt(s.actualTokens);
+    $("t-tasks").textContent=s.tasks;
+    $("t-tasks-sub").innerHTML = s.failed?`<span style="color:var(--fail);font-weight:700">${s.failed} échec${s.failed>1?"s":""}</span>`:"aucun échec";
+    $("t-acc").innerHTML = acc.toFixed(0)+"<small>%</small>"; $("t-acc-sub").textContent="écart moyen "+s.mapePct.toFixed(0)+" %";
+    $("t-cost").textContent=money(s.costUsd); $("t-cost-sub").textContent=money(s.costUsd/Math.max(1,s.tasks))+" / tâche";
+    $("t-cache").textContent=fmt(s.cacheReadTokens); $("t-cache-sub").textContent="tokens lus depuis le cache";
   }
 
-  function escapeHtml(s) {
-    return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  function renderLine(rows){
+    const host=$("linechart");
+    if(rows.length<1){ host.innerHTML='<div class="empty">Pas encore d\'exécution mesurée.</div>'; return; }
+    const p=pal(), data=[...rows].sort((a,b)=>b.daysAgo-a.daysAgo);
+    const W=680,H=230,ml=8,mr=8,mt=14,mb=26,iw=W-ml-mr,ih=H-mt-mb;
+    const maxV=Math.max(...data.map(d=>Math.max(d.estimatedTokens,d.actualTokens)))*1.08||1;
+    const x=i=>ml+(data.length===1?iw/2:i/(data.length-1)*iw), y=v=>mt+ih-(v/maxV)*ih;
+    const grid=[0,.25,.5,.75,1].map(f=>{const gy=mt+ih-f*ih;return `<line class="grid" x1="${ml}" y1="${gy}" x2="${W-mr}" y2="${gy}"/><text class="axislbl" x="${ml}" y="${gy-3}">${f===0?"0":fmt(maxV*f)}</text>`;}).join("");
+    const line=k=>data.map((d,i)=>`${i?"L":"M"}${x(i).toFixed(1)},${y(d[k]).toFixed(1)}`).join(" ");
+    const area=`M${x(0)},${y(0)} `+data.map((d,i)=>`L${x(i).toFixed(1)},${y(d.actualTokens).toFixed(1)}`).join(" ")+` L${x(data.length-1)},${y(0)} Z`;
+    const dots=(k,c)=>data.map((d,i)=>`<circle cx="${x(i).toFixed(1)}" cy="${y(d[k]).toFixed(1)}" r="${i===data.length-1?4:0}" fill="${c}" stroke="${p.surface}" stroke-width="2"/>`).join("");
+    const hits=data.map((d,i)=>`<rect x="${(x(i)-iw/data.length/2).toFixed(1)}" y="${mt}" width="${(iw/data.length).toFixed(1)}" height="${ih}" fill="transparent" data-i="${i}"/>`).join("");
+    host.innerHTML=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tokens estimés et réels par exécution">
+      ${grid}<defs><linearGradient id="af" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${p.act}" stop-opacity=".18"/><stop offset="1" stop-color="${p.act}" stop-opacity="0"/></linearGradient></defs>
+      <path d="${area}" fill="url(#af)"/>
+      <path d="${line("estimatedTokens")}" fill="none" stroke="${p.est}" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="${line("actualTokens")}" fill="none" stroke="${p.act}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${dots("estimatedTokens",p.est)}${dots("actualTokens",p.act)}
+      <line id="cross" x1="0" y1="${mt}" x2="0" y2="${mt+ih}" stroke="${p.ink3}" stroke-width="1" opacity="0"/>
+      <text class="endlbl" x="${x(data.length-1)-6}" y="${y(data[data.length-1].actualTokens)-8}" text-anchor="end" fill="${p.act}">réel</text>${hits}</svg>`;
+    const svg=host.querySelector("svg"), cross=svg.querySelector("#cross");
+    svg.addEventListener("pointermove",e=>{ const t=e.target.closest("[data-i]"); if(!t)return; const d=data[+t.dataset.i],cx=x(+t.dataset.i);
+      cross.setAttribute("x1",cx);cross.setAttribute("x2",cx);cross.setAttribute("opacity",".9");
+      const dv=(d.actualTokens-d.estimatedTokens)/d.estimatedTokens*100;
+      showTip(`<div class="th">${enc(d.task)}</div><div class="tr"><span class="muted">Estimé</span><b>${fmt(d.estimatedTokens)}</b></div><div class="tr"><span class="muted">Réel</span><b>${fmt(d.actualTokens)}</b></div><div class="tr"><span class="muted">Écart</span><b>${pct(dv,0)}</b></div>`,e.clientX,e.clientY);
+    });
+    svg.addEventListener("pointerleave",()=>{hideTip();cross.setAttribute("opacity","0");});
   }
 
-  showList();
+  function renderVariance(rows){
+    const host=$("varbars");
+    if(rows.length<1){ host.innerHTML='<div class="empty">Pas encore d\'écart à comparer.</div>'; return; }
+    const p=pal(), data=rows.map(r=>({ ...r, v:(r.actualTokens-r.estimatedTokens)/r.estimatedTokens*100 })).sort((a,b)=>b.v-a.v);
+    const maxAbs=Math.max(20,...data.map(d=>Math.abs(d.v)));
+    host.innerHTML=data.map(d=>{ const over=d.v>=0,w=Math.abs(d.v)/maxAbs*50;
+      const seg=over?`left:50%;width:${w}%;background:${p.over};`:`right:50%;width:${w}%;background:${p.under};`;
+      const tag=over?`<span class="vseg-tag" style="left:calc(50% + ${w}% + 6px);color:var(--accent-ink)">${pct(d.v,0)}</span>`:`<span class="vseg-tag" style="right:calc(50% + ${w}% + 6px);color:var(--est)">${pct(d.v,0)}</span>`;
+      return `<div class="vrow" data-t="${enc(d.task)}" data-e="${d.estimatedTokens}" data-a="${d.actualTokens}" data-v="${d.v.toFixed(0)}"><div class="name">${enc(d.task)}</div><div class="vbar"><div class="zero"></div><div class="vseg" style="${seg}"></div>${tag}</div></div>`;
+    }).join("");
+    host.querySelectorAll(".vrow").forEach(row=>{
+      row.addEventListener("pointerenter",e=>{ const el=e.currentTarget,r=el.getBoundingClientRect();
+        showTip(`<div class="th">${el.dataset.t}</div><div class="tr"><span class="muted">Estimé</span><b>${fmt(+el.dataset.e)}</b></div><div class="tr"><span class="muted">Réel</span><b>${fmt(+el.dataset.a)}</b></div><div class="tr"><span class="muted">Écart</span><b>${pct(+el.dataset.v,0)}</b></div>`,r.left+r.width/2,r.top); });
+      row.addEventListener("pointerleave",hideTip);
+    });
+  }
+
+  function renderComposition(comp){
+    const host=$("composition");
+    if(!comp.length){ host.innerHTML='<div class="empty">Aucune consommation enregistrée.</div>'; return; }
+    const p=pal(), maxTotal=Math.max(...comp.map(a=>a.inputTokens+a.outputTokens+a.cacheReadTokens),1);
+    host.innerHTML=comp.map(a=>{ const total=a.inputTokens+a.outputTokens+a.cacheReadTokens, scale=total/maxTotal*100;
+      const seg=(v,c,l)=>`<i style="width:${v/total*scale}%;background:${c}" data-t="${l}: ${fmt(v)}"></i>`;
+      return `<div class="comp-row"><div class="top"><span class="m mono">${enc(a.model)}</span><span class="t mono">${fmt(total)} · ${a.tasks} exéc.</span></div><div class="stack">${seg(a.inputTokens,p.est,"Entrée")}${seg(a.outputTokens,p.act,"Sortie")}${seg(a.cacheReadTokens,p.cache,"Cache")}</div></div>`;
+    }).join("");
+    host.querySelectorAll(".stack i").forEach(s=>{ s.addEventListener("pointerenter",e=>{const r=e.currentTarget.getBoundingClientRect();showTip(`<div class="th">${e.currentTarget.dataset.t}</div>`,r.left+r.width/2,r.top);}); s.addEventListener("pointerleave",hideTip); });
+  }
+
+  function statusPill(s){ if(s==="COMPLETED")return '<span class="pill ok">✓ Terminé</span>'; if(s==="FAILED")return '<span class="pill fail">✕ Échec</span>'; return '<span class="pill run">● '+s+'</span>'; }
+  function renderRuns(rows){
+    const host=$("runs");
+    if(!rows.length){ host.innerHTML='<div class="empty">Aucune tâche sur cette période. Lancez-en une ci-dessus.</div>'; $("tablebox").innerHTML=""; return; }
+    const data=[...rows].sort((a,b)=>a.daysAgo-b.daysAgo);
+    host.innerHTML=data.map(d=>{ const has=d.actualTokens>0&&d.estimatedTokens>0, v=has?(d.actualTokens-d.estimatedTokens)/d.estimatedTokens*100:0, up=v>=0;
+      const ago=d.daysAgo===0?"aujourd'hui":"il y a "+d.daysAgo+" j";
+      const trace=d.langsmithTraceUrl?`<a class="trace" href="${enc(d.langsmithTraceUrl)}" target="_blank" rel="noopener">trace ↗</a>`:"";
+      return `<div class="run"><div class="rn">${enc(d.task)}</div>
+        <div class="meta"><span class="modeltag mono">${enc(d.model)}</span><span>${ago}</span>${d.durationMs?`<span>${(d.durationMs/60000).toFixed(1).replace(".",",")} min</span>`:""}${statusPill(d.status)}${trace}</div>
+        <div class="right"><span class="rt mono">${d.actualTokens>0?fmt(d.actualTokens):"—"}</span>${has?`<span class="vchip ${up?"up":"down"} mono">${pct(v,0)}</span>`:`<span class="est mono" style="font-size:11px">est. ${fmt(d.estimatedTokens)}</span>`}<span class="mono" style="font-size:11px;color:var(--ink-3)">${money(d.costUsd)}</span></div></div>`;
+    }).join("");
+    $("tablebox").innerHTML=`<div style="overflow-x:auto"><table class="data mono"><thead><tr><th>Tâche</th><th>Modèle</th><th>Estimé</th><th>Réel</th><th>Écart</th><th>Coût</th></tr></thead><tbody>${data.map(d=>{const has=d.actualTokens>0&&d.estimatedTokens>0,v=has?(d.actualTokens-d.estimatedTokens)/d.estimatedTokens*100:0;return `<tr><td class="name">${enc(d.task)}</td><td>${enc(d.model)}</td><td>${nf.format(d.estimatedTokens)}</td><td>${d.actualTokens>0?nf.format(d.actualTokens):"—"}</td><td style="color:${v>=0?"var(--accent-ink)":"var(--est)"}">${has?pct(v,0):"—"}</td><td>${money(d.costUsd)}</td></tr>`;}).join("")}</tbody></table></div>`;
+  }
+
+  // ---- controls ----
+  document.querySelectorAll("[data-range]").forEach(b=>b.addEventListener("click",()=>{ range=+b.dataset.range; document.querySelectorAll("[data-range]").forEach(x=>x.setAttribute("aria-pressed",String(x===b))); hideTip(); load(); }));
+  const tt=$("tabletoggle"),tb=$("tablebox");
+  tt.addEventListener("click",()=>{ const open=tb.hidden; tb.hidden=!open; tt.setAttribute("aria-expanded",String(open)); tt.textContent=open?"▾ Masquer le tableau":"▸ Voir en tableau"; });
+  $("theme").addEventListener("click",()=>{ document.documentElement.setAttribute("data-theme", currentTheme()==="dark"?"light":"dark"); hideTip(); if(payload) renderAll(payload); });
+  matchMedia("(prefers-color-scheme:dark)").addEventListener("change",()=>{ if(!document.documentElement.getAttribute("data-theme") && payload) renderAll(payload); });
+
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("./sw.js").catch(()=>{}); }
+  boot();
+})();
 </script>
 </body>
 </html>

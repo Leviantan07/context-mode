@@ -13,11 +13,11 @@ the full design and why it's scoped this way.
 
 ```
 packages/
-  shared/      — TypeScript types every service imports (the contract)
+  shared/      — TypeScript types + the token estimator every service imports
   db/          — Postgres schema (Drizzle ORM) + migrations
   worker/      — drives Claude Code via the Claude Agent SDK; the "nervous system"
-  api/         — Fastify HTTP API + Task Manager + SSE
-  dashboard/   — static mobile-first dashboard (also the V1 mobile interface)
+  api/         — Fastify HTTP API + Task Manager + SSE + /dashboard + LangSmith read
+  dashboard/   — installable mobile PWA: pilots the Forge and visualizes inference
 mobile/        — why there's no separate native app in V1, and what one would add
 docs/
   ARCHITECTURE.md
@@ -28,10 +28,24 @@ docs/
 
 See [`docs/INSTALL.md`](docs/INSTALL.md).
 
+## Piloting from your phone
+
+The dashboard is a real installable PWA. Open it on your phone (LAN IP),
+point it at the Forge API, and Add to Home Screen. From there you type a
+task, send it to the Forge, and watch it run live — then it lands in the
+estimate-vs-actual charts, with a one-tap link to its full LangSmith trace.
+See [`docs/INSTALL.md`](docs/INSTALL.md) → *Piloting from your phone*.
+
+The phone reads real data via `GET /dashboard` on the Forge API; LangSmith
+is queried **server-side** (the key never reaches the browser). A claude.ai
+Artifact can't do this — its CSP blocks external requests — which is why the
+live client is this PWA and not the Artifact mockup.
+
 ## Status
 
 This is the V1 scaffold: architecture + working "nervous system" (task
-state machine, DB schema, Claude Code worker, LangSmith wiring, API, SSE,
-dashboard). Some pieces are intentionally stubs — see
+state machine + token estimator, DB schema, Claude Code worker, LangSmith
+wiring both directions, API with `/dashboard`, SSE, and the mobile PWA that
+pilots and visualizes it). Some pieces are intentionally stubs — see
 `packages/worker/src/runners/openhands.ts` and the "explicitly NOT in V1"
 section of the architecture doc.

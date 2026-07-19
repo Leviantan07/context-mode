@@ -210,23 +210,68 @@ LangSmith's API shape drifts, one file changes.
 than crashing the worker. Postgres metrics keep working with or without
 LangSmith; LangSmith is additive tracing, not a hard dependency for V1.
 
-## Dashboard
+### The phone never talks to LangSmith directly
 
-Three views, as specified:
+Two reasons: it would put the `LANGSMITH_API_KEY` in the browser, and
+LangSmith's API isn't set up for cross-origin browser calls. So the read
+path is **server-side**, in `packages/api/src/langsmith-read.ts`: the Forge
+API queries LangSmith (`client.listRuns`, correlating back to Forge tasks by
+the `extra.metadata.taskId` the worker stamps on each root run) and hands the
+phone plain JSON. The key stays on the server.
 
-- **Global** — task counts (total / succeeded / failed), average duration,
-  total tokens consumed. `GET /stats`.
-- **Task** — full timeline (every `TaskEvent` in order), tokens, duration,
-  errors, tool calls with their durations. `GET /tasks/:id` +
-  `GET /tasks/:id/events` (SSE for live, or replay for a finished task).
-- **Project** — modification history, basic health (success rate over
-  recent tasks). `GET /projects/:id`.
+Division of labour between the two stores:
 
-V1 dashboard is a single static page (`packages/dashboard/public/index.html`)
-with vanilla JS + `fetch`/`EventSource` — no build step, no framework. It
-doubles as the "mobile interface" deliverable: it's mobile-first CSS, and
-because it's plain static HTML+JS it can be added to a phone's home screen
-as a PWA-lite without needing a real native app or app-store distribution.
+- **Postgres is the authoritative, queryable mirror** — written in the same
+  code path as the traces, so it always has the full input/output/cache
+  split and aggregates fast. It's the default source for the dashboard's
+  numbers.
+- **LangSmith is the trace viewer** — every task row carries a
+  `langsmith_trace_url`, so one tap on the phone opens the complete trace
+  (every LLM call, tool, timing) in LangSmith. Set
+  `FORGE_METRICS_SOURCE=langsmith` to *also* source the actual-token totals
+  from LangSmith (with a Postgres fallback if it's unreachable) — useful to
+  confirm the two agree. The dashboard shows which source served the numbers.
+
+> A note on why this is a real web app and not a claude.ai Artifact: an
+> Artifact runs under a strict CSP that blocks all external network requests,
+> so it can never fetch a self-hosted Forge API or LangSmith. The polished
+> Artifact was the design mockup; this PWA is the live client.
+
+## Estimate vs actual — where the "estimate" comes from
+
+The headline comparison needs a real *estimate*, computed before any run
+exists. `packages/shared/src/estimate.ts` (`estimateTask`) does this at
+task-creation time from the prompt size and a per-model agentic profile, and
+the API stores it on the task (`estimated_input_tokens` /
+`estimated_output_tokens`). It's deliberately a rough heuristic — the whole
+dashboard exists to surface how far it drifts from reality per task, so you
+can recalibrate the profile constants from the very `model_usage` history the
+dashboard exposes. Measure drift → tune the estimator → measure again: that
+loop is the point.
+
+## Dashboard — the mobile PWA
+
+The mobile client (`packages/dashboard/public/index.html`) is a real
+installable PWA — mobile-first, no build step, vanilla JS +
+`fetch`/`EventSource`, service worker for an offline shell. It both
+**visualizes** and **pilots** the Forge:
+
+- **Pilot** — a composer posts `POST /tasks` (with a live client-side
+  estimate preview), then subscribes to `GET /tasks/:id/events` (SSE) and
+  shows the run's status, progress, tool calls, and token usage streaming in
+  live. This is the "notifications mobile" experience without APNs/FCM.
+- **Visualize** — one read, `GET /dashboard?range=N`, returns everything the
+  telemetry views render: per-task estimate vs actual, per-task variance,
+  token composition by model, cost, and the LangSmith trace link. Estimate
+  vs actual is the centerpiece; the design pulls its palette from steel
+  tempering colors (blueprint-blue estimate vs molten-amber actual — also
+  colorblind-safe, validated).
+
+Endpoints backing it: `POST /tasks`, `GET /dashboard`, `GET /tasks/:id/events`
+(SSE), plus `GET /tasks`, `GET /tasks/:id`, `GET /stats` from V1's core.
+`@fastify/cors` lets the phone (served from a different origin, or the
+home-screen app) reach the API; lock it down with `FORGE_CORS_ORIGIN` before
+exposing it beyond your LAN.
 
 ## Why this shape evolves cleanly
 

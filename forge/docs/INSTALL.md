@@ -49,15 +49,44 @@ npm run dev:api      # Fastify API on :8787 — also drives the worker in-proces
 `executeTask()` directly. `packages/worker/src/worker.ts` is a placeholder
 for when dispatch moves to a real queue; see docs/ARCHITECTURE.md.)
 
-Dashboard:
+Dashboard (the mobile PWA):
 
 ```bash
 cd packages/dashboard && npm run dev   # serves public/ on :5173
 ```
 
-Open `http://localhost:5173`, set the API base URL to `http://localhost:8787`
-when prompted (stored in `localStorage`, only asked once). On a phone, use
-your machine's LAN IP instead of `localhost` and "Add to Home Screen."
+Open it, and on first launch it asks for the **Forge API address**
+(stored in `localStorage`, changeable later via the ⚙ button). Use
+`http://localhost:8787` on the same machine.
+
+### Piloting from your phone
+
+1. Both the phone and the machine running the API must be on the same
+   network (or the API reachable from the phone).
+2. On the phone, open the dashboard using your machine's **LAN IP**
+   (e.g. `http://192.168.1.20:5173`), and enter the API address as
+   `http://192.168.1.20:8787` when prompted.
+3. **Add to Home Screen** — it installs as a standalone app (manifest +
+   service worker). From there you can type a task, tap **Envoyer à la
+   Forge**, and watch it run live (status, tools, tokens) over SSE, then see
+   it land in the estimate-vs-actual charts. Each task row links straight to
+   its full **LangSmith** trace.
+
+> For real remote (not-just-LAN) use you'd serve both over HTTPS and set
+> `FORGE_CORS_ORIGIN` + real auth — see the env vars below and the security
+> note at the bottom.
+
+### Optional env vars (all have sensible defaults)
+
+Beyond the core `.env` (`DATABASE_URL`, `FORGE_REPO_PATH`, `ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_MODEL`, `CLAUDE_CODE_PERMISSION_MODE`, `LANGSMITH_API_KEY`,
+`LANGSMITH_PROJECT`):
+
+| Var | Default | Purpose |
+|---|---|---|
+| `FORGE_METRICS_SOURCE` | `postgres` | `langsmith` sources the dashboard's actual-token totals from LangSmith (Postgres fallback). Trace links show either way. |
+| `FORGE_CORS_ORIGIN` | any origin | Lock the API's CORS to your dashboard's origin before exposing it beyond your LAN. |
+| `LANGSMITH_ENDPOINT` | `https://smith.langchain.com` | Self-hosted LangSmith only. |
 
 ## Docker Compose (API + Postgres)
 
@@ -76,9 +105,12 @@ curl http://localhost:8787/health
 curl -X POST http://localhost:8787/tasks \
   -H 'content-type: application/json' \
   -d '{"prompt": "List the files in this repo"}'
+# the response task now carries estimatedInputTokens / estimatedOutputTokens
+
+curl "http://localhost:8787/dashboard?range=7"   # what the phone renders
 ```
 
-Watch it run either in the dashboard (open the task it just created) or via
+Watch a task run either in the dashboard (open the task it just created) or via
 `curl -N http://localhost:8787/tasks/<id>/events` for the raw SSE stream.
 
 ## Mobile access: GitHub Pages + Codespaces (no local/LAN machine needed)

@@ -1,9 +1,12 @@
 {
-  "name": "Forge",
+  "name": "Forge — Télémétrie d'inférence",
   "short_name": "Forge",
+  "description": "Pilote la Forge et visualise l'inférence : tokens estimés vs réels, écart, coûts, traces LangSmith.",
   "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#0b0d12",
-  "theme_color": "#0b0d12",
+  "orientation": "portrait",
+  "background_color": "#101216",
+  "theme_color": "#101216",
   "icons": []
 }
