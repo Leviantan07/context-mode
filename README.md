@@ -963,9 +963,9 @@ npm install -g context-mode
 
 | Tool | What it does | Context saved |
 |---|---|---|
-| `ctx_batch_execute` | Run multiple commands + search multiple queries in ONE call. Opt-in `concurrency: 1-8` for I/O-bound batches. | 986 KB → 62 KB |
-| `ctx_execute` | Run code in 11 languages. Only stdout enters context. | 56 KB → 299 B |
-| `ctx_execute_file` | Process files in sandbox. Raw content never leaves. | 45 KB → 155 B |
+| `ctx_batch_execute` | Run multiple commands + search multiple queries in ONE call. Opt-in `concurrency: 1-8` for I/O-bound batches. Identical read-only commands are deduped + result-cached so they execute once. | 986 KB → 62 KB |
+| `ctx_execute` | Run code in 11 languages. Only stdout enters context. Identical read-only/deterministic calls are result-cached (5 min TTL); `force: true` to bypass. | 56 KB → 299 B |
+| `ctx_execute_file` | Process files in sandbox. Raw content never leaves. Result-cached per file contents (mtime+size keyed, auto-invalidated on edit); `force: true` to bypass. | 45 KB → 155 B |
 | `ctx_index` | Chunk markdown into FTS5 with BM25 ranking. | 60 KB → 40 B |
 | `ctx_search` | Query indexed content with multiple queries in one call. | On-demand retrieval |
 | `ctx_fetch_and_index` | Fetch URL, chunk and index. 24h TTL cache — repeat calls skip network. `force: true` to bypass. Pass `requests: [{url, source}, ...]` + `concurrency: 1-8` for parallel multi-URL. | 60 KB → 40 B |
@@ -1021,6 +1021,16 @@ Indexed content persists in a per-project SQLite database at `~/.context-mode/co
 - **14-day cleanup:** Content databases and sources older than 14 days are removed on startup.
 
 This means `--continue` sessions preserve indexed docs across restarts. No re-fetching, no wasted context tokens.
+
+### Execution Cache & Intelligent Batching
+
+The sandbox tools (`ctx_execute`, `ctx_execute_file`, `ctx_batch_execute`) share an in-memory result cache so an identical run within the same session is served from memory instead of re-spawning a subprocess.
+
+- **What gets cached:** only *read-only, deterministic* runs. A conservative heuristic refuses anything that looks mutating (`rm`, `git commit`, `npm install`, `fs.writeFileSync`, shell redirects, package installs, `docker`/`kubectl` writes, …) or non-deterministic (`date`, `$RANDOM`, `Math.random()`, `Date.now()`, `uuidgen`, …). When in doubt it does **not** cache — a re-execution is the safe failure mode; a stale replay is not.
+- **`ctx_execute` / `ctx_batch_execute`:** keyed on `(language, command)` with a 5-minute TTL (override via `CTX_EXEC_CACHE_TTL_MS`). Batch keys are namespaced separately from single-exec so their stderr-merged output never cross-serves.
+- **`ctx_execute_file`:** keyed on the file's current `mtime`+`size` as well, so editing the file automatically invalidates the entry — no TTL guesswork.
+- **Intra-batch dedup:** within one `ctx_batch_execute` call, identical read-only commands execute **once** and the output is reused for every occurrence (each keeps its own section label).
+- **`force: true`:** bypasses lookup and re-executes, then repopulates the cache with the fresh result.
 
 `ctx_stats` reports cache performance separately: hits, data avoided, network requests saved, and total context savings including cache.
 

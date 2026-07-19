@@ -13,6 +13,7 @@ import { PolyglotExecutor } from "./executor.js";
 import { runPool, type PoolJob } from "./runPool.js";
 import { ContentStore, cleanupStaleDBs, cleanupStaleContentDBs, type SearchResult, type IndexResult } from "./store.js";
 import { composeFetchCacheKey } from "./fetch-cache.js";
+import { isCacheable, execCacheKey, getExecCache, setExecCache, execCacheTtlMs } from "./exec-cache.js";
 import {
   readBashPolicies,
   evaluateCommandDenyOnly,
@@ -62,6 +63,8 @@ process.on("unhandledRejection", (err) => {
 process.on("uncaughtException", (err) => {
   process.stderr.write(`[context-mode] uncaughtException: ${err?.message ?? err}\n`);
 });
+
+const EXEC_CACHE_TTL_DISPLAY_MIN = execCacheTtlMs() / 60_000;
 
 const runtimes = detectRuntimes();
 const available = getAvailableLanguages(runtimes);
@@ -1068,9 +1071,17 @@ server.registerTool(
           "Use ctx_search(queries: [...]) to retrieve specific sections. Example: 'failing tests', 'HTTP 500 errors'." +
           "\n\nTIP: Use specific technical terms, not just concepts. Check 'Searchable terms' in the response for available vocabulary.",
         ),
+      force: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Skip the result cache and re-execute even if an identical (language, code) call was cached recently. " +
+          `Read-only/deterministic commands are cached automatically for ${Math.round(EXEC_CACHE_TTL_DISPLAY_MIN)} min — set force: true after a mutation elsewhere invalidates the expected output.`,
+        ),
     }),
   },
-  async ({ language, code, timeout, background, intent }) => {
+  async ({ language, code, timeout, background, intent, force }) => {
     // Security: deny-only firewall
     if (language === "shell") {
       const denied = checkDenyPolicy(code, "execute");
@@ -1078,6 +1089,34 @@ server.registerTool(
     } else {
       const denied = checkNonShellDenyPolicy(code, language, "execute");
       if (denied) return denied;
+    }
+
+    // Intelligent caching: identical, side-effect-free commands are served
+    // from memory instead of re-spawning a subprocess. background runs are
+    // never cached (their whole point is an ongoing process) and `force`
+    // always bypasses lookup (but the fresh result still repopulates cache).
+    const cacheVerdict = !background ? isCacheable(language, code) : { cacheable: false as const };
+    const cacheKey = cacheVerdict.cacheable ? execCacheKey([language, code]) : null;
+    if (cacheKey && !force) {
+      const cached = getExecCache(cacheKey);
+      if (cached) {
+        sessionStats.cacheHits++;
+        sessionStats.cacheBytesSaved += Buffer.byteLength(cached.stdout);
+        setImmediate(() =>
+          emitCacheHitEvent({
+            sessionDbPath: getSessionDbPath(),
+            source: `execute:${language}`,
+            bytesAvoided: Buffer.byteLength(cached.stdout),
+          })
+        );
+        return trackResponse(
+          "ctx_execute",
+          buildExecuteToolResult({
+            language, exitCode: cached.exitCode, stdout: cached.stdout, stderr: cached.stderr,
+            intent, cacheNote: "_(cached result)_",
+          }),
+        );
+      }
     }
 
     try {
@@ -1200,59 +1239,23 @@ __cm_main().catch(e=>{console.error(e);process.exitCode=1});${background ? '\nse
         });
       }
 
-      if (result.exitCode !== 0) {
-        const { isError, output } = classifyNonZeroExit({
-          language, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr,
-        });
-        if (intent && intent.trim().length > 0 && Buffer.byteLength(output) > INTENT_SEARCH_THRESHOLD) {
-          trackIndexed(Buffer.byteLength(output));
-          return trackResponse("ctx_execute", {
-            content: [
-              { type: "text" as const, text: intentSearch(output, intent, isError ? `execute:${language}:error` : `execute:${language}`) },
-            ],
-            isError,
-          });
-        }
-        // Auto-index large error output into FTS5 — no data loss
-        if (Buffer.byteLength(output) > LARGE_OUTPUT_THRESHOLD) {
-          trackIndexed(Buffer.byteLength(output));
-          return trackResponse("ctx_execute", {
-            content: [
-              { type: "text" as const, text: intentSearch(output, "errors failures exceptions", isError ? `execute:${language}:error` : `execute:${language}`) },
-            ],
-            isError,
-          });
-        }
-        return trackResponse("ctx_execute", {
-          content: [
-            { type: "text" as const, text: output },
-          ],
-          isError,
+      // Populate the exec cache with the raw, untransformed result — the
+      // shared formatter (indexing/intent-search/truncation) re-runs
+      // identically on both a fresh execution and a future cache hit.
+      if (cacheKey) {
+        setExecCache(cacheKey, {
+          stdout: result.stdout || "",
+          stderr: result.stderr || "",
+          exitCode: result.exitCode ?? 0,
         });
       }
 
-      const stdout = result.stdout || "(no output)";
-
-      // Intent-driven search: if intent provided and output is large enough
-      if (intent && intent.trim().length > 0 && Buffer.byteLength(stdout) > INTENT_SEARCH_THRESHOLD) {
-        trackIndexed(Buffer.byteLength(stdout));
-        return trackResponse("ctx_execute", {
-          content: [
-            { type: "text" as const, text: intentSearch(stdout, intent, `execute:${language}`) },
-          ],
-        });
-      }
-
-      // Auto-index large stdout into FTS5 — return pointer, not raw content
-      if (Buffer.byteLength(stdout) > LARGE_OUTPUT_THRESHOLD) {
-        return trackResponse("ctx_execute", indexStdout(stdout, `execute:${language}`));
-      }
-
-      return trackResponse("ctx_execute", {
-        content: [
-          { type: "text" as const, text: stdout },
-        ],
-      });
+      return trackResponse(
+        "ctx_execute",
+        buildExecuteToolResult({
+          language, exitCode: result.exitCode ?? 0, stdout: result.stdout || "", stderr: result.stderr || "", intent,
+        }),
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return trackResponse("ctx_execute", {
@@ -1349,6 +1352,56 @@ function intentSearch(
   return lines.join("\n");
 }
 
+/**
+ * Shared response formatter for ctx_execute / ctx_execute_file — used
+ * identically for a fresh subprocess result and a cache hit, so a cached
+ * large-output run still goes through the same intent-search/auto-index
+ * pointer path instead of dumping raw bytes into context (the whole point
+ * of the tool).
+ */
+function buildExecuteToolResult(opts: {
+  language: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  intent?: string;
+  cacheNote?: string;
+  /** Indexing/search source label. Defaults to `execute:${language}`. */
+  source?: string;
+}): { content: Array<{ type: "text"; text: string }>; isError?: boolean } {
+  const { language, exitCode, stdout, stderr, intent, cacheNote } = opts;
+  const source = opts.source ?? `execute:${language}`;
+  const suffix = cacheNote ? `\n\n${cacheNote}` : "";
+
+  if (exitCode !== 0) {
+    const { isError, output } = classifyNonZeroExit({ language, exitCode, stdout, stderr });
+    const errorSource = isError ? `${source}:error` : source;
+    if (intent && intent.trim().length > 0 && Buffer.byteLength(output) > INTENT_SEARCH_THRESHOLD) {
+      trackIndexed(Buffer.byteLength(output));
+      return { content: [{ type: "text" as const, text: intentSearch(output, intent, errorSource) + suffix }], isError };
+    }
+    if (Buffer.byteLength(output) > LARGE_OUTPUT_THRESHOLD) {
+      trackIndexed(Buffer.byteLength(output));
+      return { content: [{ type: "text" as const, text: intentSearch(output, "errors failures exceptions", errorSource) + suffix }], isError };
+    }
+    return { content: [{ type: "text" as const, text: output + suffix }], isError };
+  }
+
+  const out = stdout || "(no output)";
+
+  if (intent && intent.trim().length > 0 && Buffer.byteLength(out) > INTENT_SEARCH_THRESHOLD) {
+    trackIndexed(Buffer.byteLength(out));
+    return { content: [{ type: "text" as const, text: intentSearch(out, intent, source) + suffix }] };
+  }
+
+  if (Buffer.byteLength(out) > LARGE_OUTPUT_THRESHOLD) {
+    const indexed = indexStdout(out, source);
+    return { content: [{ type: "text" as const, text: indexed.content[0].text + suffix }] };
+  }
+
+  return { content: [{ type: "text" as const, text: out + suffix }] };
+}
+
 // ─────────────────────────────────────────────────────────
 // Tool: execute_file
 // ─────────────────────────────────────────────────────────
@@ -1394,9 +1447,16 @@ server.registerTool(
           "What you're looking for in the output. When provided and output is large (>5KB), " +
           "returns only matching sections via BM25 search instead of truncated output.",
         ),
+      force: z
+        .boolean()
+        .optional()
+        .default(false)
+        .describe(
+          "Skip the result cache and re-process even if an identical (path, code) call was cached recently for this file's current contents.",
+        ),
     }),
   },
-  async ({ path, language, code, timeout, intent }) => {
+  async ({ path, language, code, timeout, intent, force }) => {
     // Security: check file path against Read deny patterns
     const pathDenied = checkFilePathDenyPolicy(path, "ctx_execute_file");
     if (pathDenied) return pathDenied;
@@ -1408,6 +1468,41 @@ server.registerTool(
     } else {
       const codeDenied = checkNonShellDenyPolicy(code, language, "execute_file");
       if (codeDenied) return codeDenied;
+    }
+
+    // Intelligent caching: key on (path, file mtime+size, language, code) so
+    // an edit to the file automatically invalidates the cache — no TTL
+    // guesswork needed, unlike ctx_execute where inputs carry no file state.
+    const cacheVerdict = isCacheable(language, code);
+    let fileCacheKey: string | null = null;
+    if (cacheVerdict.cacheable) {
+      try {
+        const st = statSync(resolve(getProjectDir(), path));
+        fileCacheKey = execCacheKey(["file", path, String(st.mtimeMs), String(st.size), language, code]);
+      } catch {
+        // Unreadable/missing path — let executor.executeFile() below surface the real error.
+      }
+    }
+    if (fileCacheKey && !force) {
+      const cached = getExecCache(fileCacheKey);
+      if (cached) {
+        sessionStats.cacheHits++;
+        sessionStats.cacheBytesSaved += Buffer.byteLength(cached.stdout);
+        setImmediate(() =>
+          emitCacheHitEvent({
+            sessionDbPath: getSessionDbPath(),
+            source: `file:${path}`,
+            bytesAvoided: Buffer.byteLength(cached.stdout),
+          })
+        );
+        return trackResponse(
+          "ctx_execute_file",
+          buildExecuteToolResult({
+            language, exitCode: cached.exitCode, stdout: cached.stdout, stderr: cached.stderr,
+            intent, cacheNote: "_(cached result)_", source: `file:${path}`,
+          }),
+        );
+      }
     }
 
     try {
@@ -1430,58 +1525,24 @@ server.registerTool(
         });
       }
 
-      if (result.exitCode !== 0) {
-        const { isError, output } = classifyNonZeroExit({
-          language, exitCode: result.exitCode, stdout: result.stdout, stderr: result.stderr,
-        });
-        if (intent && intent.trim().length > 0 && Buffer.byteLength(output) > INTENT_SEARCH_THRESHOLD) {
-          trackIndexed(Buffer.byteLength(output));
-          return trackResponse("ctx_execute_file", {
-            content: [
-              { type: "text" as const, text: intentSearch(output, intent, isError ? `file:${path}:error` : `file:${path}`) },
-            ],
-            isError,
-          });
-        }
-        // Auto-index large error output into FTS5 — no data loss
-        if (Buffer.byteLength(output) > LARGE_OUTPUT_THRESHOLD) {
-          trackIndexed(Buffer.byteLength(output));
-          return trackResponse("ctx_execute_file", {
-            content: [
-              { type: "text" as const, text: intentSearch(output, "errors failures exceptions", isError ? `file:${path}:error` : `file:${path}`) },
-            ],
-            isError,
-          });
-        }
-        return trackResponse("ctx_execute_file", {
-          content: [
-            { type: "text" as const, text: output },
-          ],
-          isError,
+      // Populate the exec cache with the raw result — the shared formatter
+      // re-runs identically on a future cache hit. Key already embeds the
+      // file's mtime+size, so any later edit misses the cache automatically.
+      if (fileCacheKey) {
+        setExecCache(fileCacheKey, {
+          stdout: result.stdout || "",
+          stderr: result.stderr || "",
+          exitCode: result.exitCode ?? 0,
         });
       }
 
-      const stdout = result.stdout || "(no output)";
-
-      if (intent && intent.trim().length > 0 && Buffer.byteLength(stdout) > INTENT_SEARCH_THRESHOLD) {
-        trackIndexed(Buffer.byteLength(stdout));
-        return trackResponse("ctx_execute_file", {
-          content: [
-            { type: "text" as const, text: intentSearch(stdout, intent, `file:${path}`) },
-          ],
-        });
-      }
-
-      // Auto-index large stdout into FTS5 — return pointer, not raw content
-      if (Buffer.byteLength(stdout) > LARGE_OUTPUT_THRESHOLD) {
-        return trackResponse("ctx_execute_file", indexStdout(stdout, `file:${path}`));
-      }
-
-      return trackResponse("ctx_execute_file", {
-        content: [
-          { type: "text" as const, text: stdout },
-        ],
-      });
+      return trackResponse(
+        "ctx_execute_file",
+        buildExecuteToolResult({
+          language, exitCode: result.exitCode ?? 0, stdout: result.stdout || "", stderr: result.stderr || "",
+          intent, source: `file:${path}`,
+        }),
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       return trackResponse("ctx_execute_file", {
@@ -2672,18 +2733,107 @@ server.registerTool(
       // as an inline shell prefix. This only affects child `node` invocations.
       const nodeOptsPrefix = buildBatchNodeOptionsPrefix(runtimes.shell, CM_FS_PRELOAD);
 
-      // Full stdout is preserved per-command and indexed into FTS5 (Issue #61, #197).
-      // Concurrency>1 switches to a worker pool with per-command timeouts.
-      const { outputs: perCommandOutputs, timedOut } = await runBatchCommands(
-        commands,
-        {
-          timeout,
-          concurrency,
-          nodeOptsPrefix,
-          onFsBytes: (bytes) => { sessionStats.bytesSandboxed += bytes; },
-        },
-        executor,
-      );
+      // Intelligent batching: (1) resolve any CACHEABLE command whose exact
+      // text was run recently — this call or an earlier one — from the shared
+      // exec-cache instead of re-spawning a subprocess; (2) dedupe identical
+      // CACHEABLE command text WITHIN this call so a repeated read-only
+      // command executes once and its output is reused for every occurrence.
+      //
+      // Mutating/non-deterministic commands are NEVER deduped or cached: a
+      // command like `echo x >> log` appearing twice MUST run twice, so each
+      // such occurrence gets its own private group key and its own execution.
+      // Only the filtered/deduped command set reaches runBatchCommands (and
+      // its concurrency pool) below — runBatchCommands itself is untouched,
+      // so its concurrency/timeout semantics (and their unit tests) are
+      // unaffected by this layer.
+      const perCommandOutputs: string[] = new Array(commands.length);
+      const missGroupIndices = new Map<string, number[]>(); // groupKey -> original indices
+      const groupCacheKey = new Map<string, string | null>(); // groupKey -> exec-cache key (null = don't cache)
+      let cacheHitCount = 0;
+      let cacheHitBytes = 0;
+
+      for (let i = 0; i < commands.length; i++) {
+        const cmd = commands[i];
+        const verdict = isCacheable("shell", cmd.command);
+        // Namespaced "batch-shell" (not "shell") so a batch entry — whose
+        // output includes stderr via the `2>&1` the batch runner appends —
+        // never cross-serves a bare ctx_execute("shell") call that has no
+        // such redirect, and vice versa.
+        const cacheKey = verdict.cacheable ? execCacheKey(["batch-shell", cmd.command]) : null;
+
+        if (cacheKey) {
+          const cached = getExecCache(cacheKey);
+          if (cached) {
+            perCommandOutputs[i] = formatCommandOutput(cmd.label, cached.stdout);
+            cacheHitCount++;
+            cacheHitBytes += Buffer.byteLength(cached.stdout);
+            continue;
+          }
+        }
+
+        // Group key: cacheable commands share a group (dedup + write-through);
+        // non-cacheable commands get a unique per-index group (never merged).
+        const groupKey = cacheKey ?? `__nocache__${i}`;
+        groupCacheKey.set(groupKey, cacheKey);
+        const list = missGroupIndices.get(groupKey);
+        if (list) list.push(i);
+        else missGroupIndices.set(groupKey, [i]);
+      }
+
+      if (cacheHitCount > 0) {
+        sessionStats.cacheHits += cacheHitCount;
+        sessionStats.cacheBytesSaved += cacheHitBytes;
+        setImmediate(() =>
+          emitCacheHitEvent({
+            sessionDbPath: getSessionDbPath(),
+            source: "batch_execute",
+            bytesAvoided: cacheHitBytes,
+          })
+        );
+      }
+
+      const groupKeys = [...missGroupIndices.keys()];
+      const toRun: BatchCommand[] = groupKeys.map((gk) => {
+        const firstIdx = missGroupIndices.get(gk)![0];
+        return { label: commands[firstIdx].label, command: commands[firstIdx].command };
+      });
+
+      let timedOut = false;
+      if (toRun.length > 0) {
+        // Full stdout is preserved per-command and indexed into FTS5 (Issue #61, #197).
+        // Concurrency>1 switches to a worker pool with per-command timeouts.
+        const runResult = await runBatchCommands(
+          toRun,
+          {
+            timeout,
+            concurrency,
+            nodeOptsPrefix,
+            onFsBytes: (bytes) => { sessionStats.bytesSandboxed += bytes; },
+          },
+          executor,
+        );
+        timedOut = runResult.timedOut;
+
+        for (let j = 0; j < groupKeys.length; j++) {
+          const gk = groupKeys[j];
+          const indices = missGroupIndices.get(gk)!;
+          const rawOutput = runResult.outputs[j];
+          const incomplete =
+            rawOutput.includes("(timed out after") ||
+            rawOutput.includes("(skipped — batch timeout exceeded)") ||
+            rawOutput.includes("(executor error:");
+          // Body without the "# <label>\n\n" header — reused per original
+          // index so each occurrence keeps its own label.
+          const body = rawOutput.replace(/^# [^\n]*\n\n/, "").replace(/\n$/, "");
+          for (const i of indices) {
+            perCommandOutputs[i] = i === indices[0] ? rawOutput : formatCommandOutput(commands[i].label, body);
+          }
+          if (!incomplete) {
+            const cacheKey = groupCacheKey.get(gk) ?? null;
+            if (cacheKey) setExecCache(cacheKey, { stdout: body, stderr: "", exitCode: 0 });
+          }
+        }
+      }
 
       const stdout = perCommandOutputs.join("\n");
       const totalBytes = Buffer.byteLength(stdout);
